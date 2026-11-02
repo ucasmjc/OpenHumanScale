@@ -7,12 +7,15 @@ Completed public updates are recorded here. Future work is tracked in
 
 ### Project documentation
 
-- Organize the README around project introduction, News, demos, results,
+- Organize the README around project introduction, News, scaling and zero-shot results,
   release progress, and getting started.
 - Add a maintained release plan with milestones for the main policy/evaluation,
   reproducible post-training, and all related RoboTwin experiment groups.
 - Keep detailed configuration and reproduction information in the code guide.
-- Display real-robot demo keyframes, with their source and format identified.
+- Replace the demo-led README with six paper figures: egocentric scaling under
+  two attention settings, RoboTwin zero-shot success and coverage, and real-robot
+  zero-shot scaling and per-task results. Record figure sources and hashes.
+- Reserve real-robot demos for the project page and align the maintained roadmap.
 
 ### Initial public code preview
 

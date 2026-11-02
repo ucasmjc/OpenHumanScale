@@ -1,9 +1,38 @@
 {
-  "humanwam_demos.png": {
-    "source": "figs/model/real_robot_tasks_and_conditions.pdf",
+  "ego_scaling_ia.png": {
+    "source": "figs/study/scaling/hours_default.pdf",
     "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
-    "source_sha256": "5bbf852ee8ca1a2766e8b8755e7d321fc40a8ec861a7beb4deee8fdbc23db5f9",
-    "rendering": "First PDF page rendered at 1600 px width; no content edits",
-    "description": "Selected real-robot rollout keyframes and visual evaluation conditions; not a video"
+    "source_sha256": "a08a05294d619de841a962c56b3effc31f960424247d981dd3103aab4c06485f",
+    "rendering": "First PDF page rendered at 1800 px width; no content edits"
+  },
+  "ego_scaling_idm.png": {
+    "source": "figs/study/scaling/hours_idm.pdf",
+    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+    "source_sha256": "1ef31a32505d29e76f8bf87c8f886363e9157e9c894c321463262b3c7207270c",
+    "rendering": "First PDF page rendered at 1800 px width; no content edits"
+  },
+  "zero_shot_robotwin_success.png": {
+    "source": "figs/robot_human/wam-success-chart-combined-ge2.pdf",
+    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+    "source_sha256": "086f2cf99996c9507215363a484431b0741555199fb01e52ea49f70e28ee11d1",
+    "rendering": "First PDF page rendered at 1800 px width; no content edits"
+  },
+  "zero_shot_robotwin_coverage.png": {
+    "source": "figs/robot_human/wam-coverage-chart-combined-ge2.pdf",
+    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+    "source_sha256": "1885a055251f7fb9453c875ddfc36a4bd13544b210de31c880723c1e6c263699",
+    "rendering": "First PDF page rendered at 1800 px width; no content edits"
+  },
+  "zero_shot_real_robot_scaling.png": {
+    "source": "figs/robot_human/real_robot_zero_shot_difficulty_scaling.pdf",
+    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+    "source_sha256": "9670d45704617d0f2528358848d213a8b5e529b15ba8494d59c760c2d009b18d",
+    "rendering": "First PDF page rendered at 1800 px width; no content edits"
+  },
+  "zero_shot_real_robot_tasks.png": {
+    "source": "figs/robot_human/real_robot_zero_shot_comparison_expanded.pdf",
+    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+    "source_sha256": "2e303961a5b9c8aecac734c6ea3c814f0281072350ae5172ec1981238c373b29",
+    "rendering": "First PDF page rendered at 2400 px width; no content edits"
   }
 }

@@ -4,20 +4,21 @@
 
 ### Scaling Human Experience for Robot Learning
 
-**HumanWAM · RoboTwin Post-training**
+**Human Data Scaling · Zero-Shot Robot Learning**
 
 [![Code](https://img.shields.io/badge/Code-Public_Preview-blue)](#-news)
 [![Docs](https://img.shields.io/badge/Docs-Getting_Started-green)](docs/code_guide.md)
 [![Release Plan](https://img.shields.io/badge/Release_Plan-In_Progress-orange)](ROADMAP.md)
 
-[**Demos**](#-demos) · [**Results**](#-key-results) · [**Getting Started**](#-getting-started) · [**Release Plan**](ROADMAP.md) · [**Experiments**](docs/experiments.md)
+[**Scaling**](#-scaling-human-experience) · [**Zero-Shot**](#-zero-shot-robot-learning) · [**Getting Started**](#-getting-started) · [**Release Plan**](ROADMAP.md) · [**Experiments**](docs/experiments.md)
 
 </div>
 
 **Open-HumanScale** studies how human egocentric experience improves robot learning
 as data scale, diversity, and action supervision change. **HumanWAM** connects
 future video prediction with action generation, then adapts to robot manipulation
-through post-training on robot demonstrations.
+through post-training on robot demonstrations. **HumanWAM-Goal** explores
+zero-shot execution through hybrid human–robot training and visual goals.
 
 This repository hosts the **RoboTwin post-training code and experiment release**.
 Pretraining code and initialization weights are outside its release scope.
@@ -29,52 +30,66 @@ Pretraining code and initialization weights are outside its release scope.
 - **[Next]** Release the main RoboTwin policy bundle and evaluation interface.
   Follow the [release plan](ROADMAP.md) for progress and deliverables.
 
-## 💡 Highlights
+## 📈 Scaling Human Experience
 
-- **Human experience transfers to robots.** HumanWAM reaches **92.08% Clean2Clean**
-  and **68.88% Clean2Random** success on RoboTwin after clean-only post-training.
-- **Generalization beyond simulation.** Across three real-robot tasks, mean
-  out-of-distribution success improves from **3.3% to 66.7%** over No-Ego.
-- **A systematic study of adaptation.** The release plan covers data scaling,
-  diversity, alignment, action supervision, multi-view adaptation, demonstration
-  efficiency, robot-versus-human initialization, and model ablations.
+**More human experience improves downstream generalization.** Scaling egocentric
+pretraining from **100 to 50,000 hours** raises Scene-OOD success from **49.1% to
+71.8%** and Random success from **21.5% to 39.3%** with inverse-dynamics attention.
 
-## 🦾 Demos
+**Isolated attention · 100–10,000 hours**
 
-![HumanWAM demos: paper cup stacking, towel folding, and desk clearing](assets/humanwam_demos.png)
+![Egocentric data scaling with isolated attention: Clean, Scene-OOD, and Random success](assets/ego_scaling_ia.png)
 
-*Real-robot rollout keyframes from the paper: cup stacking, towel folding, and
-long-horizon desk clearing, with changes in tablecloth and lighting. These are
-selected frames, not playable videos. This code release focuses on RoboTwin.*
+**Inverse-dynamics attention · 100–50,000 hours**
 
-## 📊 Key Results
+![Egocentric data scaling with inverse-dynamics attention: Clean, Scene-OOD, and Random success](assets/ego_scaling_idm.png)
 
-### RoboTwin 2.0
+*HumanWAM after RoboTwin post-training. The scaling study reports the best success
+rate per evaluation setting; dashed blue curves are empirical log-linear fits,
+and gray lines are No-Ego baselines.*
 
-| Model | Clean2Clean | Clean2Random | Average |
-| --- | ---: | ---: | ---: |
-| **HumanWAM** | **92.08%** | **68.88%** | **80.48%** |
+## 🎯 Zero-Shot Robot Learning
 
-50 clean training demonstrations per task; 50 tasks × 50 evaluation episodes per
-setting. Both settings use the same **50kh-initialized** policy and unseen
-instructions. [Checkpoint and evaluation details →](docs/paper_alignment.md)
+HumanWAM-Goal executes tasks **without target-task parameter updates**.
 
-### Real robots
+### RoboTwin: success and task coverage
 
-| Model | In-distribution | Out-of-distribution |
-| --- | ---: | ---: |
-| No-Ego | 56.7% | 3.3% |
-| **HumanWAM** | **86.7%** | **66.7%** |
+With robot data fixed at **14,618 hours**, adding **45,938 hours** of human data
+raises average zero-shot success from **11.48% to 13.94%** and per-checkpoint
+task coverage from **18 to 22 of 50 tasks**.
 
-Mean success across cup stacking, towel folding, and desk clearing; 10 trials per
-task, model, and setting. All results above are reported in the paper.
+<p align="center">
+  <img src="assets/zero_shot_robotwin_success.png" width="49%" alt="RoboTwin zero-shot Clean and Random success as robot and human data scale">
+  <img src="assets/zero_shot_robotwin_coverage.png" width="49%" alt="RoboTwin zero-shot task coverage per checkpoint and cumulatively across configurations">
+</p>
+
+*50 Clean and 50 Random episodes per executed task; all 50 tasks remain in the
+scoring denominator. Coverage requires ≥2% mean success across the two settings.
+“Cumulative” is the union across independently trained configurations.*
+
+### Real robots: scaling and per-task results
+
+Across **20 tasks**, average zero-shot success increases from **20.0% → 26.0% →
+30.5%** as human data scale from **0 → 15,901 → 45,938 hours**, with robot data fixed.
+
+![Real-robot zero-shot success by task difficulty and training-data scale](assets/zero_shot_real_robot_scaling.png)
+
+![Real-robot zero-shot success and progress scores on 20 tasks](assets/zero_shot_real_robot_tasks.png)
+
+*10 trials per task. The 30.5% result uses the scaling-series configuration.
+“Balanced” is a separate 50:50 robot/human sampling variant at the same data scale;
+it raises medium-task success from 19% to 27%, with 29% success overall.*
+
+These figures report paper results. Real-robot demos will be hosted on the project
+page; its link will be added when public. For the released HumanWAM code's
+post-training benchmark and checkpoint mapping, see [result details](docs/paper_alignment.md).
 
 ## 🗓️ Release Plan
 
 - [x] Initial HumanWAM/RoboTwin source and configuration preview.
-- [x] Key results, demo keyframes, and experiment index.
+- [x] Scaling and zero-shot result figures, and experiment index.
 - [ ] **Next:** main policy weights, matching configuration and normalization statistics.
-- [ ] RoboTwin inference adapter, evaluation commands, and rollout videos.
+- [ ] RoboTwin inference adapter and evaluation commands.
 - [ ] Data preparation tools and a verified post-training walkthrough.
 - [ ] Complete experiment configurations, checkpoints, and result mappings.
 

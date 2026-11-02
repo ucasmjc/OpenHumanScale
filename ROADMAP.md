@@ -4,8 +4,11 @@
 
 This is the maintained plan for the **RoboTwin post-training** release. It covers
 code, post-trained weights, related experiments, and evaluation. Pretraining and
-mid-training pipelines/initialization weights, RoboDojo, and real-robot/GoalWAM
+mid-training pipelines/initialization weights, RoboDojo, and real-robot/HumanWAM-Goal
 code are outside this plan.
+
+The README presents the paper's scaling and zero-shot findings. Real-robot demos
+belong on the project page; paper figures do not expand the code release scope.
 
 Milestones are ordered by delivery priority. Dates are announced in README News
 when confirmed; the items below do not imply a promised release date.
@@ -16,7 +19,7 @@ when confirmed; the items below do not imply a promised release date.
 - [x] Separate local resource paths from five configuration references.
 - [x] Add the experiment index and manuscript-result provenance.
 - [x] Run CPU configuration/video tests, import checks, and wheel packaging.
-- [x] Publish key results, demo keyframes, and project documentation.
+- [x] Publish scaling and zero-shot result figures, with source provenance, and project documentation.
 
 Evidence: [initial code commit](https://github.com/ucasmjc/OpenHumanScale/commit/f39b1e1e17d5fb4971f4efda4d178103e70cc150),
 [verification record](release/verification.json), and [source manifest](release/source_manifest.json).
@@ -95,7 +98,8 @@ compatible post-trained artifacts and runnable evaluation settings. See the
 
 - [ ] Add the public paper URL and canonical BibTeX entry when available.
 - [ ] Link the public project page when its release is confirmed.
-- [ ] Replace or supplement demo keyframes with attributable rollout videos.
+- [ ] Publish real-robot demos on the project page with task and checkpoint attribution.
+- [x] Center the README on scaling and zero-shot figures from the latest manuscript.
 - [ ] Complete upstream revision attribution and model-asset license documentation.
 - [ ] Keep known limitations, setup instructions, and troubleshooting current.
 
