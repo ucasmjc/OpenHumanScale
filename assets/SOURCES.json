@@ -1,0 +1,9 @@
+{
+  "humanwam_demos.png": {
+    "source": "figs/model/real_robot_tasks_and_conditions.pdf",
+    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+    "source_sha256": "5bbf852ee8ca1a2766e8b8755e7d321fc40a8ec861a7beb4deee8fdbc23db5f9",
+    "rendering": "First PDF page rendered at 1600 px width; no content edits",
+    "description": "Selected real-robot rollout keyframes and visual evaluation conditions; not a video"
+  }
+}
