@@ -1,0 +1,742 @@
+#!/usr/bin/env python
+
+# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Includes FastWAM/OpenHumanScale adaptations; original upstream notices are retained.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import glob
+import importlib
+import logging
+import os
+import warnings
+import atexit
+from collections import OrderedDict
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, ClassVar
+
+import av
+import pyarrow as pa
+import torch
+import torchvision
+from datasets.features.features import register_feature
+from PIL import Image
+
+
+_PYAV_DECODE_THREADS_ENV = "FASTWAM_PYAV_DECODE_THREADS"
+_PYAV_CONTAINERS = OrderedDict()
+
+
+def _close_pyav_containers():
+    while _PYAV_CONTAINERS:
+        _, container = _PYAV_CONTAINERS.popitem(last=False)
+        container.close()
+
+
+atexit.register(_close_pyav_containers)
+if hasattr(os, "register_at_fork"):
+    # Never inherit active FFmpeg decoder threads into DataLoader children.
+    os.register_at_fork(before=_close_pyav_containers)
+
+
+@contextmanager
+def _selected_rgb_container(video_path):
+    capacity = int(os.environ.get("FASTWAM_PYAV_CONTAINER_CACHE_SIZE", "0"))
+    if not 0 <= capacity <= 32:
+        raise ValueError("FASTWAM_PYAV_CONTAINER_CACHE_SIZE must be in [0, 32]")
+    threads = _resolve_pyav_decode_threads()
+    thread_type = os.environ.get("FASTWAM_PYAV_THREAD_TYPE", "SLICE")
+    if thread_type not in {"SLICE", "FRAME", "AUTO"}:
+        raise ValueError("FASTWAM_PYAV_THREAD_TYPE must be SLICE, FRAME or AUTO")
+    if not capacity:
+        _close_pyav_containers()
+        with av.open(str(video_path), "r") as container:
+            container.streams.video[0].codec_context.thread_count = threads
+            container.streams.video[0].codec_context.thread_type = thread_type
+            yield container
+        return
+    key = (os.fspath(video_path), threads, thread_type)
+    container = _PYAV_CONTAINERS.pop(key, None)
+    reused = container is not None
+    if container is None:
+        container = av.open(str(video_path), "r")
+    try:
+        if not reused:
+            container.streams.video[0].codec_context.thread_count = threads
+            container.streams.video[0].codec_context.thread_type = thread_type
+        # The caller always seeks, which flushes the decoder after a prior read.
+        yield container
+    except BaseException:
+        container.close()
+        raise
+    else:
+        previous = _PYAV_CONTAINERS.pop(key, None)
+        if previous is not None:
+            previous.close()
+        _PYAV_CONTAINERS[key] = container
+        while len(_PYAV_CONTAINERS) > capacity:
+            _, evicted = _PYAV_CONTAINERS.popitem(last=False)
+            evicted.close()
+
+
+def _resolve_pyav_decode_threads() -> int:
+    """Return the bounded FFmpeg thread count used by PyAV video readers.
+
+    PyAV otherwise leaves ``AVCodecContext.thread_count`` at zero, which asks
+    FFmpeg to auto-size the decoder pool from all CPUs visible to the process.
+    On a 192-CPU Arena node, one reader can therefore create hundreds of native
+    threads.  Multiplied by ranks and DataLoader workers, that can leave every
+    distributed rank waiting for data while thousands of decoder threads
+    contend for the same CPUs.
+    """
+
+    raw_value = os.environ.get(_PYAV_DECODE_THREADS_ENV, "1").strip()
+    try:
+        thread_count = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{_PYAV_DECODE_THREADS_ENV} must be a positive integer, got {raw_value!r}"
+        ) from exc
+    if thread_count <= 0:
+        raise ValueError(
+            f"{_PYAV_DECODE_THREADS_ENV} must be a positive integer, got {thread_count}"
+        )
+    return thread_count
+
+
+def _configure_pyav_reader_threads(reader: Any, thread_count: int) -> None:
+    """Apply a concrete thread limit before the lazy PyAV decoder is consumed."""
+
+    stream_id = int(getattr(reader, "pyav_stream", {}).get("video", 0))
+    video_streams = reader.container.streams.video
+    if stream_id < 0 or stream_id >= len(video_streams):
+        raise IndexError(
+            f"PyAV video stream index {stream_id} is outside [0, {len(video_streams)})"
+        )
+    video_streams[stream_id].codec_context.thread_count = int(thread_count)
+
+
+def get_safe_default_codec():
+    if importlib.util.find_spec("torchcodec"):
+        return "torchcodec"
+    else:
+        logging.warning(
+            "'torchcodec' is not available in your platform, falling back to 'pyav' as a default decoder"
+        )
+        return "pyav"
+
+
+def decode_video_frames(
+    video_path: Path | str,
+    timestamps: list[float],
+    tolerance_s: float,
+    backend: str | None = None,
+) -> torch.Tensor:
+    """
+    Decodes video frames using the specified backend.
+
+    Args:
+        video_path (Path): Path to the video file.
+        timestamps (list[float]): List of timestamps to extract frames.
+        tolerance_s (float): Allowed deviation in seconds for frame retrieval.
+        backend (str, optional): Backend to use for decoding. Defaults to "torchcodec" when available in the platform; otherwise, defaults to "pyav"..
+
+    Returns:
+        torch.Tensor: Decoded frames.
+
+    Currently supports torchcodec on cpu and pyav.
+    """
+    if backend is None:
+        backend = get_safe_default_codec()
+    if backend == "torchcodec":
+        try:
+            return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s)
+        except Exception as err:
+            warnings.warn(
+                f"torchcodec video decode failed ({type(err).__name__}: {err}); falling back to torchvision/pyav."
+            )
+            return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend="pyav")
+    elif backend in ["pyav", "video_reader"]:
+        return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
+    else:
+        raise ValueError(f"Unsupported video backend: {backend}")
+
+
+def decode_video_frames_torchvision(
+    video_path: Path | str,
+    timestamps: list[float],
+    tolerance_s: float,
+    backend: str = "pyav",
+    log_loaded_timestamps: bool = False,
+) -> torch.Tensor:
+    """Loads frames associated to the requested timestamps of a video
+
+    The backend can be either "pyav" (default) or "video_reader".
+    "video_reader" requires installing torchvision from source, see:
+    https://github.com/pytorch/vision/blob/main/torchvision/csrc/io/decoder/gpu/README.rst
+    (note that you need to compile against ffmpeg<4.3)
+
+    While both use cpu, "video_reader" is supposedly faster than "pyav" but requires additional setup.
+    For more info on video decoding, see `benchmark/video/README.md`
+
+    See torchvision doc for more info on these two backends:
+    https://pytorch.org/vision/0.18/index.html?highlight=backend#torchvision.set_video_backend
+
+    Note: Video benefits from inter-frame compression. Instead of storing every frame individually,
+    the encoder stores a reference frame (or a key frame) and subsequent frames as differences relative to
+    that key frame. As a consequence, to access a requested frame, we need to load the preceding key frame,
+    and all subsequent frames until reaching the requested frame. The number of key frames in a video
+    can be adjusted during encoding to take into account decoding time and video size in bytes.
+    """
+    video_path = str(video_path)
+
+    # set backend
+    keyframes_only = False
+    torchvision.set_video_backend(backend)
+    if backend == "pyav":
+        if not hasattr(torchvision.io, "VideoReader") or os.environ.get('FASTWAM_PYAV_SELECTED_RGB') == '1':
+            return decode_video_frames_pyav_direct(
+                video_path,
+                timestamps,
+                tolerance_s,
+                log_loaded_timestamps=log_loaded_timestamps,
+            )
+        keyframes_only = True  # pyav doesn't support accurate seek
+
+    # set a video stream reader
+    # TODO(rcadene): also load audio stream at the same time
+    reader = torchvision.io.VideoReader(video_path, "video")
+    if backend == "pyav":
+        # TorchVision's VideoReader ``num_threads`` argument is ignored by its
+        # PyAV backend. Set AVCodecContext directly before first iteration.
+        _configure_pyav_reader_threads(reader, _resolve_pyav_decode_threads())
+
+    # set the first and last requested timestamps
+    # Note: previous timestamps are usually loaded, since we need to access the previous key frame
+    first_ts = min(timestamps)
+    last_ts = max(timestamps)
+
+    # access closest key frame of the first requested frame
+    # Note: closest key frame timestamp is usually smaller than `first_ts` (e.g. key frame can be the first frame of the video)
+    # for details on what `seek` is doing see: https://pyav.basswood-io.com/docs/stable/api/container.html?highlight=inputcontainer#av.container.InputContainer.seek
+    reader.seek(first_ts, keyframes_only=keyframes_only)
+
+    # load all frames until last requested frame
+    loaded_frames = []
+    loaded_ts = []
+    for frame in reader:
+        current_ts = frame["pts"]
+        if log_loaded_timestamps:
+            logging.info(f"frame loaded at timestamp={current_ts:.4f}")
+        loaded_frames.append(frame["data"])
+        loaded_ts.append(current_ts)
+        if current_ts >= last_ts:
+            break
+
+    if backend == "pyav":
+        reader.container.close()
+
+    reader = None
+
+    # Use float32 for timestamp distance computation (torch.cdist doesn't support bfloat16).
+    query_ts = torch.tensor(timestamps, dtype=torch.float32)
+    loaded_ts = torch.tensor(loaded_ts, dtype=torch.float32)
+
+    # compute distances between each query timestamp and timestamps of all loaded frames
+    dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
+    min_, argmin_ = dist.min(1)
+
+    is_within_tol = min_ < tolerance_s
+    assert is_within_tol.all(), (
+        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
+        "It means that the closest frame that can be loaded from the video is too far away in time."
+        "This might be due to synchronization issues with timestamps during data collection."
+        "To be safe, we advise to ignore this item during training."
+        f"\nqueried timestamps: {query_ts}"
+        f"\nloaded timestamps: {loaded_ts}"
+        f"\nvideo: {video_path}"
+        f"\nbackend: {backend}"
+    )
+
+    # get closest frames to the query timestamps
+    closest_frames = torch.stack([loaded_frames[idx] for idx in argmin_])
+    closest_ts = loaded_ts[argmin_]
+
+    if log_loaded_timestamps:
+        logging.info(f"{closest_ts=}")
+
+    # convert to the pytorch format which is float32 in [0,1] range (and channel first)
+    closest_frames = closest_frames.type(torch.float32) / 255
+
+    assert len(timestamps) == len(closest_frames)
+    return closest_frames
+
+
+def decode_video_frames_pyav_direct(
+    video_path: Path | str,
+    timestamps: list[float],
+    tolerance_s: float,
+    log_loaded_timestamps: bool = False,
+) -> torch.Tensor:
+    """Decode timestamped frames with PyAV when torchvision removed VideoReader."""
+
+    if os.environ.get('FASTWAM_PYAV_SELECTED_RGB', '0') == '1':
+        return _decode_pyav_selected_rgb(video_path, timestamps, tolerance_s, log_loaded_timestamps)
+
+    first_ts = min(timestamps)
+    last_ts = max(timestamps)
+    loaded_frames = []
+    loaded_ts = []
+    with av.open(str(video_path), "r") as container:
+        stream = container.streams.video[0]
+        stream.codec_context.thread_count = _resolve_pyav_decode_threads()
+        if stream.time_base is None:
+            raise RuntimeError(f"video stream has no time base: {video_path}")
+        seek_pts = max(0, int(first_ts / float(stream.time_base)))
+        container.seek(seek_pts, stream=stream, backward=True, any_frame=False)
+        for frame in container.decode(stream):
+            if frame.pts is None:
+                continue
+            current_ts = float(frame.pts * stream.time_base)
+            if log_loaded_timestamps:
+                logging.info("frame loaded at timestamp=%.4f", current_ts)
+            rgb = frame.to_ndarray(format="rgb24")
+            loaded_frames.append(
+                torch.from_numpy(rgb.copy()).permute(2, 0, 1).contiguous()
+            )
+            loaded_ts.append(current_ts)
+            if current_ts >= last_ts:
+                break
+
+    if not loaded_frames:
+        raise RuntimeError(
+            f"PyAV decoded no frames for {video_path} at timestamps={timestamps}"
+        )
+    query_ts = torch.tensor(timestamps, dtype=torch.float64)
+    loaded_ts_tensor = torch.tensor(loaded_ts, dtype=torch.float64)
+    distances = torch.cdist(
+        query_ts[:, None],
+        loaded_ts_tensor[:, None],
+        p=1,
+    )
+    minimum, indices = distances.min(1)
+    is_within_tolerance = minimum < tolerance_s
+    if not bool(is_within_tolerance.all()):
+        raise AssertionError(
+            "One or more PyAV frames violate timestamp tolerance "
+            f"({minimum[~is_within_tolerance]} > tolerance_s={tolerance_s}); "
+            f"queries={query_ts}, loaded={loaded_ts_tensor}, video={video_path}"
+        )
+    closest_frames = torch.stack([loaded_frames[index] for index in indices])
+    return closest_frames.to(dtype=torch.float32).div_(255)
+
+
+def _decode_pyav_selected_rgb(video_path, timestamps, tolerance_s, log_loaded_timestamps=False):
+    """Keep nearest AVFrames and convert only requested frames to RGB.
+
+    Timestamp comparisons use float64: float32 spacing at long-video offsets
+    exceeds the timestamp tolerance. No resize, seek or codec change.
+    RGB memory/conversion scales with requested frames, not the keyframe interval.
+    """
+    # Python floats retain float64 precision without allocating several torch
+    # tensors for every decoded frame (including the unrequested GOP prefix).
+    query = [float(t) for t in timestamps]
+    best_distance = [float('inf')] * len(query)
+    selected = [None] * len(timestamps)
+    first_ts, last_ts = min(query), max(query)
+    with _selected_rgb_container(video_path) as container:
+        stream = container.streams.video[0]
+        if stream.time_base is None:
+            raise RuntimeError(f'video stream has no time base: {video_path}')
+        container.seek(max(0,int(first_ts/float(stream.time_base))),
+                       stream=stream, backward=True, any_frame=False)
+        for frame in container.decode(stream):
+            if frame.pts is None:
+                continue
+            current = float(frame.pts * stream.time_base)
+            if log_loaded_timestamps:
+                logging.info('frame loaded at timestamp=%.4f',current)
+            for i, timestamp in enumerate(query):
+                distance = abs(timestamp - current)
+                if distance < best_distance[i]:
+                    best_distance[i] = distance
+                    selected[i] = frame
+            if current >= last_ts:
+                break
+        if any(f is None for f in selected):
+            raise RuntimeError(f'PyAV decoded no frames for {video_path} at timestamps={timestamps}')
+        if not all(distance < tolerance_s for distance in best_distance):
+            raise AssertionError(f'PyAV timestamp tolerance violated: {video_path}; distances={best_distance}')
+        converted = {}
+        result=[]
+        for frame in selected:
+            key=id(frame)
+            if key not in converted:
+                rgb=frame.to_ndarray(format='rgb24')
+                converted[key]=torch.from_numpy(rgb.copy()).permute(2,0,1).contiguous()
+            result.append(converted[key])
+    return torch.stack(result).to(dtype=torch.float32).div_(255)
+
+
+def decode_video_frames_torchcodec(
+    video_path: Path | str,
+    timestamps: list[float],
+    tolerance_s: float,
+    device: str = "cpu",
+    log_loaded_timestamps: bool = False,
+) -> torch.Tensor:
+    """Loads frames associated with the requested timestamps of a video using torchcodec.
+
+    Note: Setting device="cuda" outside the main process, e.g. in data loader workers, will lead to CUDA initialization errors.
+
+    Note: Video benefits from inter-frame compression. Instead of storing every frame individually,
+    the encoder stores a reference frame (or a key frame) and subsequent frames as differences relative to
+    that key frame. As a consequence, to access a requested frame, we need to load the preceding key frame,
+    and all subsequent frames until reaching the requested frame. The number of key frames in a video
+    can be adjusted during encoding to take into account decoding time and video size in bytes.
+    """
+
+    if importlib.util.find_spec("torchcodec"):
+        from torchcodec.decoders import VideoDecoder
+    else:
+        raise ImportError("torchcodec is required but not available.")
+
+    # initialize video decoder
+    decoder = VideoDecoder(video_path, device=device, seek_mode="approximate")
+    loaded_frames = []
+    loaded_ts = []
+    # get metadata for frame information
+    metadata = decoder.metadata
+    average_fps = metadata.average_fps
+
+    # convert timestamps to frame indices
+    frame_indices = [round(ts * average_fps) for ts in timestamps]
+
+    # retrieve frames based on indices
+    frames_batch = decoder.get_frames_at(indices=frame_indices)
+
+    for frame, pts in zip(frames_batch.data, frames_batch.pts_seconds, strict=False):
+        loaded_frames.append(frame)
+        loaded_ts.append(pts.item())
+        if log_loaded_timestamps:
+            logging.info(f"Frame loaded at timestamp={pts:.4f}")
+
+    # Use float32 for timestamp distance computation (torch.cdist doesn't support bfloat16).
+    query_ts = torch.tensor(timestamps, dtype=torch.float32)
+    loaded_ts = torch.tensor(loaded_ts, dtype=torch.float32)
+
+    # compute distances between each query timestamp and loaded timestamps
+    dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
+    min_, argmin_ = dist.min(1)
+
+    is_within_tol = min_ < tolerance_s
+    assert is_within_tol.all(), (
+        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
+        "It means that the closest frame that can be loaded from the video is too far away in time."
+        "This might be due to synchronization issues with timestamps during data collection."
+        "To be safe, we advise to ignore this item during training."
+        f"\nqueried timestamps: {query_ts}"
+        f"\nloaded timestamps: {loaded_ts}"
+        f"\nvideo: {video_path}"
+    )
+
+    # get closest frames to the query timestamps
+    closest_frames = torch.stack([loaded_frames[idx] for idx in argmin_])
+    closest_ts = loaded_ts[argmin_]
+
+    if log_loaded_timestamps:
+        logging.info(f"{closest_ts=}")
+
+    # convert to float32 in [0,1] range (channel first)
+    closest_frames = closest_frames.type(torch.float32) / 255
+
+    assert len(timestamps) == len(closest_frames)
+    return closest_frames
+
+def encode_video_frames(
+    imgs_dir: Path | str,
+    video_path: Path | str,
+    fps: int,
+    vcodec: str = "libsvtav1",
+    pix_fmt: str = "yuv420p",
+    g: int | None = 2,
+    crf: int | None = 30,
+    fast_decode: int = 0,
+    log_level: int | None = av.logging.ERROR,
+    overwrite: bool = False,
+) -> None:
+    """More info on ffmpeg arguments tuning on `benchmark/video/README.md`"""
+    # Check encoder availability
+    if vcodec == "h264_nvenc" :
+        return encode_video_frames_ffmpeg(
+            imgs_dir, video_path, fps, pix_fmt = pix_fmt, overwrite=overwrite
+        )
+
+    if vcodec not in ["h264", "hevc", "libsvtav1"]:
+        raise ValueError(f"Unsupported video codec: {vcodec}. Supported codecs are: h264, hevc, libsvtav1.")
+
+    video_path = Path(video_path)
+    imgs_dir = Path(imgs_dir)
+
+    video_path.parent.mkdir(parents=True, exist_ok=overwrite)
+
+    # Encoders/pixel formats incompatibility check
+    if (vcodec == "libsvtav1" or vcodec == "hevc") and pix_fmt == "yuv444p":
+        logging.warning(
+            f"Incompatible pixel format 'yuv444p' for codec {vcodec}, auto-selecting format 'yuv420p'"
+        )
+        pix_fmt = "yuv420p"
+
+    # Get input frames
+    template = "frame_" + ("[0-9]" * 6) + ".jpeg"
+    input_list = sorted(
+        glob.glob(str(imgs_dir / template)), key=lambda x: int(x.split("_")[-1].split(".")[0])
+    )
+
+    # Define video output frame size (assuming all input frames are the same size)
+    if len(input_list) == 0:
+        raise FileNotFoundError(f"No images found in {imgs_dir}.")
+    dummy_image = Image.open(input_list[0])
+    width, height = dummy_image.size
+
+    # Define video codec options
+    video_options = {}
+
+    if g is not None:
+        video_options["g"] = str(g)
+
+    if crf is not None:
+        video_options["crf"] = str(crf)
+
+    if fast_decode:
+        key = "svtav1-params" if vcodec == "libsvtav1" else "tune"
+        value = f"fast-decode={fast_decode}" if vcodec == "libsvtav1" else "fastdecode"
+        video_options[key] = value
+
+    # Set logging level
+    if log_level is not None:
+        # "While less efficient, it is generally preferable to modify logging with Python’s logging"
+        logging.getLogger("libav").setLevel(log_level)
+
+    # Create and open output file (overwrite by default)
+    with av.open(str(video_path), "w") as output:
+        output_stream = output.add_stream(vcodec, fps, options=video_options)
+        output_stream.pix_fmt = pix_fmt
+        output_stream.width = width
+        output_stream.height = height
+
+        # Loop through input frames and encode them
+        for input_data in input_list:
+            input_image = Image.open(input_data).convert("RGB")
+            input_frame = av.VideoFrame.from_image(input_image)
+            packet = output_stream.encode(input_frame)
+            if packet:
+                output.mux(packet)
+
+        # Flush the encoder
+        packet = output_stream.encode()
+        if packet:
+            output.mux(packet)
+
+    # Reset logging level
+    if log_level is not None:
+        av.logging.restore_default_callback()
+
+    if not video_path.exists():
+        raise OSError(f"Video encoding did not work. File not found: {video_path}.")
+
+# GPU speed up video encoding
+def encode_video_frames_ffmpeg(
+    imgs_dir: Path | str,
+    video_path: Path | str,
+    fps: int,
+    vcodec: str = "h264_nvenc",
+    pix_fmt: str = "yuv420p",
+    g: int | None = 4,
+    crf: int | None = 30,
+    overwrite: bool = False,
+) -> None:
+    import subprocess
+    import shutil
+
+    video_path = Path(video_path)
+    imgs_dir = Path(imgs_dir)
+
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Check if ffmpeg is available
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path is None:
+        raise RuntimeError("ffmpeg is not installed or not in system PATH")
+
+    # Build ffmpeg command
+    cmd = [
+        ffmpeg_path,
+        "-y" if overwrite else "-n",
+        "-framerate", str(fps),
+        "-pattern_type", "sequence",
+        "-i", str(imgs_dir / "frame_%06d.jpeg"),
+        "-vcodec", vcodec,
+        "-pix_fmt", pix_fmt,
+    ]
+
+    if g is not None:
+        cmd.extend(["-g", str(g)])
+
+    if crf is not None:
+        cmd.extend(["-crf", str(crf)])
+
+    cmd.append(str(video_path))
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        error_msg = f"FFmpeg failed:\nCommand: {' '.join(cmd)}\nStdout: {e.stdout}\nStderr: {e.stderr}"
+        logging.error(error_msg)
+        logging.error(video_path)
+        logging.error(vcodec)
+        print(f"ffmpeg {' '.join(cmd)}")
+        raise RuntimeError(error_msg)
+    except Exception as e:
+        error_msg = f"Failed to run FFmpeg command: {' '.join(cmd)}\nError: {str(e)}"
+        logging.error(error_msg)
+        raise RuntimeError(error_msg)
+
+
+@dataclass
+class VideoFrame:
+    # TODO(rcadene, lhoestq): move to Hugging Face `datasets` repo
+    """
+    Provides a type for a dataset containing video frames.
+
+    Example:
+
+    ```python
+    data_dict = [{"image": {"path": "videos/episode_0.mp4", "timestamp": 0.3}}]
+    features = {"image": VideoFrame()}
+    Dataset.from_dict(data_dict, features=Features(features))
+    ```
+    """
+
+    pa_type: ClassVar[Any] = pa.struct({"path": pa.string(), "timestamp": pa.float32()})
+    _type: str = field(default="VideoFrame", init=False, repr=False)
+
+    def __call__(self):
+        return self.pa_type
+
+
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        "'register_feature' is experimental and might be subject to breaking changes in the future.",
+        category=UserWarning,
+    )
+    # to make VideoFrame available in HuggingFace `datasets`
+    register_feature(VideoFrame, "VideoFrame")
+
+
+def get_audio_info(video_path: Path | str) -> dict:
+    # Set logging level
+    logging.getLogger("libav").setLevel(av.logging.ERROR)
+
+    # Getting audio stream information
+    audio_info = {}
+    with av.open(str(video_path), "r") as audio_file:
+        try:
+            audio_stream = audio_file.streams.audio[0]
+        except IndexError:
+            # Reset logging level
+            av.logging.restore_default_callback()
+            return {"has_audio": False}
+
+        audio_info["audio.channels"] = audio_stream.channels
+        audio_info["audio.codec"] = audio_stream.codec.canonical_name
+        # In an ideal loseless case : bit depth x sample rate x channels = bit rate.
+        # In an actual compressed case, the bit rate is set according to the compression level : the lower the bit rate, the more compression is applied.
+        audio_info["audio.bit_rate"] = audio_stream.bit_rate
+        audio_info["audio.sample_rate"] = audio_stream.sample_rate  # Number of samples per second
+        # In an ideal loseless case : fixed number of bits per sample.
+        # In an actual compressed case : variable number of bits per sample (often reduced to match a given depth rate).
+        audio_info["audio.bit_depth"] = audio_stream.format.bits
+        audio_info["audio.channel_layout"] = audio_stream.layout.name
+        audio_info["has_audio"] = True
+
+    # Reset logging level
+    av.logging.restore_default_callback()
+
+    return audio_info
+
+
+def get_video_info(video_path: Path | str) -> dict:
+    # Set logging level
+    logging.getLogger("libav").setLevel(av.logging.ERROR)
+
+    # Getting video stream information
+    video_info = {}
+    with av.open(str(video_path), "r") as video_file:
+        try:
+            video_stream = video_file.streams.video[0]
+        except IndexError:
+            # Reset logging level
+            av.logging.restore_default_callback()
+            return {}
+
+        video_info["video.height"] = video_stream.height
+        video_info["video.width"] = video_stream.width
+        video_info["video.codec"] = video_stream.codec.canonical_name
+        video_info["video.pix_fmt"] = video_stream.pix_fmt
+        video_info["video.is_depth_map"] = False
+
+        # Calculate fps from r_frame_rate
+        video_info["video.fps"] = int(video_stream.base_rate)
+
+        pixel_channels = get_video_pixel_channels(video_stream.pix_fmt)
+        video_info["video.channels"] = pixel_channels
+
+    # Reset logging level
+    av.logging.restore_default_callback()
+
+    # Adding audio stream information
+    video_info.update(**get_audio_info(video_path))
+
+    return video_info
+
+
+def get_video_pixel_channels(pix_fmt: str) -> int:
+    if "gray" in pix_fmt or "depth" in pix_fmt or "monochrome" in pix_fmt:
+        return 1
+    elif "rgba" in pix_fmt or "yuva" in pix_fmt:
+        return 4
+    elif "rgb" in pix_fmt or "yuv" in pix_fmt:
+        return 3
+    else:
+        raise ValueError("Unknown format")
+
+
+def get_image_pixel_channels(image: Image):
+    if image.mode == "L":
+        return 1  # Grayscale
+    elif image.mode == "LA":
+        return 2  # Grayscale + Alpha
+    elif image.mode == "RGB":
+        return 3  # RGB
+    elif image.mode == "RGBA":
+        return 4  # RGBA
+    else:
+        raise ValueError("Unknown format")

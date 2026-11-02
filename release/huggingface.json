@@ -1,0 +1,73 @@
+{
+  "namespace": "DAGroup-PKU",
+  "structure": "One OpenHumanScale collection; one model repository per experiment group; variant/checkpoint subdirectories",
+  "repository_count": 9,
+  "collections": [
+    {
+      "title": "OpenHumanScale",
+      "repo_ids": [
+        "DAGroup-PKU/OpenHumanScale-RoboTwin",
+        "DAGroup-PKU/OpenHumanScale-Data-Scaling",
+        "DAGroup-PKU/OpenHumanScale-Data-Diversity",
+        "DAGroup-PKU/OpenHumanScale-Alignment",
+        "DAGroup-PKU/OpenHumanScale-Action-Supervision",
+        "DAGroup-PKU/OpenHumanScale-Multiview",
+        "DAGroup-PKU/OpenHumanScale-Demo-Efficiency",
+        "DAGroup-PKU/OpenHumanScale-Robot-vs-Ego",
+        "DAGroup-PKU/OpenHumanScale-Model-Ablations"
+      ]
+    }
+  ],
+  "repositories": [
+    {
+      "group": "main_result",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-RoboTwin",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "scaling",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Data-Scaling",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "diversity",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Data-Diversity",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "alignment",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Alignment",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "action_supervision",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Action-Supervision",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "multiview",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Multiview",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "demonstration_efficiency",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Demo-Efficiency",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "robot_vs_ego",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Robot-vs-Ego",
+      "state": "planned_not_created"
+    },
+    {
+      "group": "model_ablations",
+      "repo_id": "DAGroup-PKU/OpenHumanScale-Model-Ablations",
+      "state": "planned_not_created"
+    }
+  ],
+  "weights_published": false,
+  "main_policy_reference": "paper_alignment.json",
+  "deduplication": "Shared controls have one canonical weight destination and references from other groups.",
+  "scope": "RoboTwin post-trained weights only",
+  "catalog_status": "Earlier 495-checkpoint inventory predates latest main-result and ablation changes; full refreshed catalog pending."
+}

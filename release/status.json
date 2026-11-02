@@ -1,0 +1,28 @@
+{
+  "stage": "first_public_code_preview",
+  "complete_release_ready": false,
+  "base_profile": "idm_w0_a2_50kh",
+  "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+  "completed": [
+    "Extracted source matching the current 50kh/W0/A2 HumanWAM profile",
+    "Removed pretraining-only runtime factories, replay/edit mixers, and archive/mirror readers",
+    "Separated machine resource bindings from five historical configurations",
+    "Added post-trained-policy fine-tuning entry point",
+    "Indexed nine experiment groups, including latest model ablations",
+    "Preserved existing MIT and vendored Apache license notices",
+    "17 CPU tests passed, including an actual MP4 decode",
+    "Core imports succeeded offline without visible GPUs",
+    "Wheel builds and includes source license notices"
+  ],
+  "pending": [
+    "Bind and validate full checkpoint/config/normalizer triples",
+    "Package RoboTwin dataset conversion, prompts, caches, and statistics generation",
+    "Integrate the exact simulator adapter and evaluation seeds",
+    "Finish other experiment source profiles including Optional-IDM and model ablations",
+    "Validate clean installation and GPU forward/backward plus loader coverage",
+    "Trace exact upstream Wan revisions in the inherited FastWAM source"
+  ],
+  "weight_files_included": false,
+  "weight_downloads_available": false,
+  "pretraining_included": false
+}
