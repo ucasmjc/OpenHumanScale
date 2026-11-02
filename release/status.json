@@ -24,5 +24,8 @@
   ],
   "weight_files_included": false,
   "weight_downloads_available": false,
-  "pretraining_included": false
+  "pretraining_included": false,
+  "roadmap": "ROADMAP.md",
+  "current_milestone": "M1",
+  "next_deliverable": "Main RoboTwin policy bundle and evaluation interface"
 }

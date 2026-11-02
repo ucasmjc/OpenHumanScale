@@ -1,5 +1,7 @@
 # RoboTwin code guide
 
+[Project overview](../README.md) · [Release plan](../ROADMAP.md) · [Changelog](../CHANGELOG.md)
+
 ## Release scope
 
 This repository focuses on **RoboTwin post-training**. It includes the model,
