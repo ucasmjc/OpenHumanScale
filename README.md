@@ -2,7 +2,7 @@
 
 # Open-HumanScale
 
-### Scaling Human Experience for Robot Learning
+### The Emerging Capability on Embodied Foundation Model<br>from Large Scale Hybrid Data Scaling
 
 **Human Data Scaling · Zero-Shot Robot Learning**
 
