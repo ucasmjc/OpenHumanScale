@@ -1,6 +1,6 @@
 # Open-HumanScale Release Plan
 
-**Last updated: 2026-11-02 · Current stage: public code preview · Next: main policy and evaluation**
+**Last updated: 2026-11-03 · Current stage: public code preview · Next: main policy and evaluation**
 
 This is the maintained plan for the **RoboTwin post-training** release. It covers
 code, post-trained weights, related experiments, and evaluation. Pretraining and
@@ -96,6 +96,10 @@ compatible post-trained artifacts and runnable evaluation settings. See the
 
 ## Publication and documentation (ongoing)
 
+- [x] Add logo badges for arXiv, the project page, Hugging Face datasets/models,
+  and ModelScope datasets, with explicit availability in [Resources](docs/resources.md).
+- [x] Refresh README figures and scaling results against the November 3 manuscript.
+- [ ] Replace pending resource badges with direct public links as releases become available.
 - [ ] Add the public paper URL and canonical BibTeX entry when available.
 - [ ] Link the public project page when its release is confirmed.
 - [ ] Publish real-robot demos on the project page with task and checkpoint attribution.

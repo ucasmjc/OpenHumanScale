@@ -6,16 +6,18 @@
 
 **Human Data Scaling · Zero-Shot Robot Learning**
 
-[![Code](https://img.shields.io/badge/Code-Public_Preview-blue)](#-news)
-[![Docs](https://img.shields.io/badge/Docs-Getting_Started-green)](docs/code_guide.md)
-[![Release Plan](https://img.shields.io/badge/Release_Plan-In_Progress-orange)](ROADMAP.md)
+[![arXiv](https://img.shields.io/badge/arXiv-Coming_soon-B31B1B?style=flat&logo=arxiv&logoColor=white)](#-paper-and-citation)
+[![Project Page](https://img.shields.io/badge/%F0%9F%8C%90_Project_Page-Coming_soon-4285F4?style=flat)](docs/resources.md#project-page)
+[![Hugging Face Dataset](https://img.shields.io/badge/Hugging_Face-Dataset_%C2%B7_Coming_soon-FFD21E?style=flat&logo=huggingface)](docs/resources.md#datasets)
+[![Hugging Face Models](https://img.shields.io/badge/Hugging_Face-Models_%C2%B7_Coming_soon-FFD21E?style=flat&logo=huggingface)](docs/resources.md#models)
+[![ModelScope Dataset](https://img.shields.io/badge/ModelScope-Dataset_%C2%B7_Coming_soon-624AFF?style=flat&logo=modelscope&logoColor=white)](docs/resources.md#datasets)
 
 [**Scaling**](#-scaling-human-experience) · [**Zero-Shot**](#-zero-shot-robot-learning) · [**Getting Started**](#-getting-started) · [**Release Plan**](ROADMAP.md) · [**Experiments**](docs/experiments.md)
 
 </div>
 
 **Open-HumanScale** studies how human egocentric experience improves robot learning
-as data scale, diversity, and action supervision change. **HumanWAM** connects
+as data scale, diversity, and action supervision change. **HumanWAM-Vanilla** connects
 future video prediction with action generation, then adapts to robot manipulation
 through post-training on robot demonstrations. **HumanWAM-Goal** explores
 zero-shot execution through hybrid human–robot training and visual goals.
@@ -25,6 +27,8 @@ Pretraining code and initialization weights are outside its release scope.
 
 ## 🔥 News
 
+- **[2026/11/03]** Updated scaling figures and results from the latest manuscript.
+  The 50k-hour LeRobot v3 dataset conversion is complete; dataset uploads are in progress.
 - **[2026/11/02]** The first public code preview is available: HumanWAM model and
   trainer, RoboTwin data loading, configuration references, and CPU checks.
 - **[Next]** Release the main RoboTwin policy bundle and evaluation interface.
@@ -34,7 +38,7 @@ Pretraining code and initialization weights are outside its release scope.
 
 **More human experience improves downstream generalization.** Scaling egocentric
 pretraining from **100 to 50,000 hours** raises Scene-OOD success from **49.1% to
-71.8%** and Random success from **21.5% to 39.3%** with inverse-dynamics attention.
+73.2%** and Random success from **21.5% to 42.9%** with inverse-dynamics attention.
 
 **Isolated attention · 100–10,000 hours**
 
@@ -44,7 +48,7 @@ pretraining from **100 to 50,000 hours** raises Scene-OOD success from **49.1% t
 
 ![Egocentric data scaling with inverse-dynamics attention: Clean, Scene-OOD, and Random success](assets/ego_scaling_idm.png)
 
-*HumanWAM after RoboTwin post-training. The scaling study reports the best success
+*After RoboTwin post-training. The scaling study reports the best success
 rate per evaluation setting; dashed blue curves are empirical log-linear fits,
 and gray lines are No-Ego baselines.*
 
@@ -78,7 +82,7 @@ Across **20 tasks**, average zero-shot success increases from **20.0% → 26.0% 
 
 *10 trials per task. The 30.5% result uses the scaling-series configuration.
 “Balanced” is a separate 50:50 robot/human sampling variant at the same data scale;
-it raises medium-task success from 19% to 27%, with 29% success overall.*
+it raises success on the Hard task group from 19% to 27%, with 29% success overall.*
 
 These figures report paper results. Real-robot demos will be hosted on the project
 page; its link will be added when public. For the released HumanWAM code's
@@ -118,6 +122,7 @@ are tracked in the [next milestone](ROADMAP.md#m1--main-policy-and-evaluation-in
 
 | Resource | Contents |
 | --- | --- |
+| [Paper, project page, datasets, and models](docs/resources.md) | Publication links and availability |
 | [Code guide](docs/code_guide.md) | Installation and RoboTwin post-training setup |
 | [Experiment index](docs/experiments.md) | Experiment groups and planned weight repositories |
 | [Result details](docs/paper_alignment.md) | Reported policy, evaluation protocol, and provenance |
@@ -131,8 +136,9 @@ relevant error output when reporting a problem.
 
 ## 📄 Paper and Citation
 
-The public paper link and BibTeX entry will be added when available. Results and
-terminology currently follow the November 2, 2026 manuscript.
+arXiv and the project page are coming soon. The paper link and BibTeX entry will
+be added when available. Results and terminology follow the November 3, 2026
+manuscript; dataset and model availability is tracked in [Resources](docs/resources.md).
 
 ## License and Acknowledgments
 

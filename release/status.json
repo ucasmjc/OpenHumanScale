@@ -27,5 +27,7 @@
   "pretraining_included": false,
   "roadmap": "ROADMAP.md",
   "current_milestone": "M1",
-  "next_deliverable": "Main RoboTwin policy bundle and evaluation interface"
+  "next_deliverable": "Main RoboTwin policy bundle and evaluation interface",
+  "readme_manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
+  "resources": "docs/resources.md"
 }

@@ -1,38 +1,38 @@
 {
   "ego_scaling_ia.png": {
     "source": "figs/study/scaling/hours_default.pdf",
-    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
+    "manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
     "source_sha256": "a08a05294d619de841a962c56b3effc31f960424247d981dd3103aab4c06485f",
     "rendering": "First PDF page rendered at 1800 px width; no content edits"
   },
   "ego_scaling_idm.png": {
     "source": "figs/study/scaling/hours_idm.pdf",
-    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
-    "source_sha256": "1ef31a32505d29e76f8bf87c8f886363e9157e9c894c321463262b3c7207270c",
+    "manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
+    "source_sha256": "466a5547741c12dab0ac651b9329d89584a9867f3f7b56506a63fd385dba06e0",
     "rendering": "First PDF page rendered at 1800 px width; no content edits"
   },
   "zero_shot_robotwin_success.png": {
     "source": "figs/robot_human/wam-success-chart-combined-ge2.pdf",
-    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
-    "source_sha256": "086f2cf99996c9507215363a484431b0741555199fb01e52ea49f70e28ee11d1",
+    "manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
+    "source_sha256": "71a1f43366e905d8c6032bdea826843c6ad7374da3bd5a2fc83b7397d7a6141a",
     "rendering": "First PDF page rendered at 1800 px width; no content edits"
   },
   "zero_shot_robotwin_coverage.png": {
     "source": "figs/robot_human/wam-coverage-chart-combined-ge2.pdf",
-    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
-    "source_sha256": "1885a055251f7fb9453c875ddfc36a4bd13544b210de31c880723c1e6c263699",
+    "manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
+    "source_sha256": "e3a3315e3ce19bcce1bc749e242d9c579a8a3f988f8edf91976b3a352a22f8d5",
     "rendering": "First PDF page rendered at 1800 px width; no content edits"
   },
   "zero_shot_real_robot_scaling.png": {
     "source": "figs/robot_human/real_robot_zero_shot_difficulty_scaling.pdf",
-    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
-    "source_sha256": "9670d45704617d0f2528358848d213a8b5e529b15ba8494d59c760c2d009b18d",
+    "manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
+    "source_sha256": "db4291ed49770561755de3ee870656cfda113087e116c8e7ddcffd8cf22d591c",
     "rendering": "First PDF page rendered at 1800 px width; no content edits"
   },
   "zero_shot_real_robot_tasks.png": {
     "source": "figs/robot_human/real_robot_zero_shot_comparison_expanded.pdf",
-    "manuscript_revision": "99c34327fc900c7087662e4a88a00ca8a8ceeab9",
-    "source_sha256": "2e303961a5b9c8aecac734c6ea3c814f0281072350ae5172ec1981238c373b29",
+    "manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
+    "source_sha256": "3ef12d4cd5e15dfefe4fbbcac1e5c6b7393deb68a0a64d1cb19a710a90da92d3",
     "rendering": "First PDF page rendered at 2400 px width; no content edits"
   }
 }

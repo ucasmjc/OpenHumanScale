@@ -1,10 +1,17 @@
 # Alignment with the manuscript
 
-This preview was checked against manuscript revision
+The initial code preview was checked against manuscript revision
 `99c34327fc900c7087662e4a88a00ca8a8ceeab9` from November 2, 2026.
 The paper's current title is *Open-HumanScale: The Emerging Capability on Embodied
 Foundation Model from Large Scale Hybrid Data Scaling*. The policy in the
-pure-egocentric model section is named **HumanWAM**.
+pure-egocentric model section was named **HumanWAM**.
+
+The README and its six figures were refreshed against revision
+`9a84e02f539ea5c928c0852b1c6248e2cd68f7e5` on November 3, 2026. The model is now
+named **HumanWAM-Vanilla** in the introduction and model section. The IDM scaling
+study now reports 73.2% Scene-OOD and 42.9% Random at 50kh; these study results
+are separate from the main policy benchmark below. This documentation refresh
+does not change the released source profile or imply new reproduction tests.
 
 The main RoboTwin evaluation is the **50kh / pre40k / W0 mid10k / post21k A2**
 policy, with recorded SHA-256

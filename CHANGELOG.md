@@ -3,6 +3,15 @@
 Completed public updates are recorded here. Future work is tracked in
 [ROADMAP.md](ROADMAP.md); no numbered model release has been published yet.
 
+## 2026-11-03
+
+- Put arXiv, Project Page, Hugging Face dataset/model, and ModelScope dataset
+  logo badges at the top of the README; mark unpublished resources as coming soon.
+- Add a resource index distinguishing dataset conversion, upload, and public availability.
+- Refresh all six result figures from manuscript revision `9a84e02`; update the
+  IDM scaling endpoints to 73.2% Scene-OOD and 42.9% Random and use HumanWAM-Vanilla
+  for the pure-egocentric model.
+
 ## 2026-11-02
 
 ### Project documentation
