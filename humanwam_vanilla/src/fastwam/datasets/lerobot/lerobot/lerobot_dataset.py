@@ -1692,7 +1692,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         item = {}
         for vid_key, query_ts in query_timestamps.items():
             if (self.root / "video_binding.json").exists():
-                raise ValueError("Pretraining video archives are outside this RoboTwin release")
+                raise ValueError("This loader does not yet support video_binding.json archive inputs")
             video_path = self.root / self.meta.get_video_file_path(ep_idx, vid_key)
             if self.file_cache is not None:
                 video_path = self.file_cache.stage(video_path)

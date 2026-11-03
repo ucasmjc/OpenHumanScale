@@ -1,4 +1,4 @@
-# RoboTwin experiment index
+# HumanWAM-Vanilla experiment index
 
 This index follows the November 2, 2026 manuscript. Repository names below are
 planned Hugging Face destinations in `DAGroup-PKU`, grouped into one
@@ -30,6 +30,8 @@ be uploaded once and referenced by other experiment manifests. The earlier
 495-checkpoint inventory predates the latest main-result and ablation additions;
 it is not presented here as a complete current release catalog.
 
-The manuscript's joint human/robot scaling, real-robot results, and GoalWAM/ICL
-sections are outside this RoboTwin-only code preview. Their inclusion in the
-paper does not imply their code or weights are included here.
+This table tracks the currently indexed RoboTwin experiments. The full
+HumanWAM-Vanilla release also includes pretraining, data preparation, and its
+other evaluation workflows; their executable recipes and artifact mappings
+will be added here as they are packaged. Joint human/robot scaling and visual-goal
+workflows belong to [HumanWAM-Goal](../../humanwam_goal/), whose implementation is forthcoming.

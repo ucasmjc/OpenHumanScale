@@ -1,17 +1,18 @@
-# RoboTwin code guide
+# HumanWAM-Vanilla code guide
 
-[Project overview](../README.md) · [Release plan](../ROADMAP.md) · [Changelog](../CHANGELOG.md)
+[Model overview](../README.md) · [Project](../../README.md) · [Release plan](../../ROADMAP.md) · [Changelog](../../CHANGELOG.md)
 
 ## Release scope
 
-This repository focuses on **RoboTwin post-training**. It includes the model,
-trainer, robot dataset loader, a portable fine-tuning configuration, and five
-historical configuration references. Pretraining and mid-training pipelines,
-their initialization checkpoints, RoboDojo, and real-robot/GoalWAM workflows are
-outside this release. The manuscript covers a broader research program.
+HumanWAM-Vanilla is being released in full: data processing, pretraining,
+mid-training, post-training, evaluation, checkpoints, and related experiments.
+The current packaged entry point is RoboTwin fine-tuning, with the model,
+trainer, loader, and five historical configuration references. Additional
+workflows and checkpoint downloads are tracked in the [release plan](../../ROADMAP.md).
+HumanWAM-Goal will live in its own [model directory](../../humanwam_goal/).
 
-The project name is **Open-HumanScale**; the policy described in the manuscript's
-model section is **HumanWAM**. Internal `fastwam` module and parameter names are
+The project is **Open-HumanScale** and this model is **HumanWAM-Vanilla**.
+Internal `fastwam` module and parameter names are
 retained to preserve compatibility with the recorded checkpoints.
 
 ## Current manuscript result
@@ -55,6 +56,8 @@ repository or Collection has been published by this code release.
 
 ## Installation
 
+Run the commands below from `OpenHumanScale/humanwam_vanilla/`.
+
 Use Python 3.10 or newer. Dependency pins come from a historical training snapshot;
 clean installation and GPU compatibility remain to be validated. The historical
 baseline is PyTorch 2.7.1 / torchvision 0.22.1 with CUDA 12.8. Install a matching
@@ -81,8 +84,8 @@ are still being packaged.
 
 `paths.resume` must identify a compatible **full RoboTwin post-trained policy**.
 Checkpoint downloads are not yet published, so this preview is not a runnable
-quickstart with downloadable assets. Private pretraining initializers are not
-needed by the fine-tuning entry point and are not included.
+quickstart with downloadable assets. Pretraining initialization and its checkpoint assets will be documented with the
+pretraining workflow; they are not yet packaged in this checkout.
 
 ```bash
 python scripts/train.py --paths configs/paths.local.yaml --check-config
@@ -102,7 +105,7 @@ accelerate launch scripts/train.py --paths configs/paths.local.yaml
 ```
 
 This starts a new fine-tuning schedule from post-trained weights, rather than
-recreating the full trajectory from private pretraining initializers. Exact
+recreating the full trajectory from pretraining initializers. Exact
 training-state resume is outside this first entry point. Simulator evaluation
 commands will be added after binding the adapter revision to the released policy.
 

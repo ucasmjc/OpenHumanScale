@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openhumanscale-robotwin"
+name = "openhumanscale-humanwam-vanilla"
 version = "0.1.0"
-description = "Open-HumanScale HumanWAM RoboTwin post-training code preview"
+description = "Open-HumanScale HumanWAM-Vanilla"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

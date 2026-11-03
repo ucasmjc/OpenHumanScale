@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check source closure, hashes, and release scope without importing ML libraries."""
+"""Check source closure, hashes, and portable resource paths without importing ML libraries."""
 import ast
 import hashlib
 import importlib.util
@@ -53,11 +53,6 @@ def check(root=ROOT):
         path = root / row['path']
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != row['exported_sha256']:
             errors.append(f'Source differs from export manifest: {row["path"]}')
-    forbidden_modules = ('datasets.edit', 'datasets.source_mix', 'source_mix_clips',
-                         'source_video_cache', 'video_archive_clips', 'datasets.wds')
-    for module in modules:
-        if any(part in module for part in forbidden_modules):
-            errors.append(f'Pretraining-only module present: {module}')
     # Inspect tracked candidates only; local bindings and generated outputs are private.
     candidates = [*sources, *sorted((root / 'configs').rglob('*.yaml'))]
     for path in candidates:

@@ -61,7 +61,8 @@
       "sha256": "2bc0e2534186ac3d1ff80ba0e0c7675ad97f29e2e8dbf2cbf5171a64019abdc5"
     }
   ],
-  "excluded_paper_sections": [
+  "known_difference": "The provisional 100kh recipe / post12k budget is not the lineage of the current evaluated checkpoint.",
+  "not_yet_packaged_paper_sections": [
     "pretraining pipelines and weights",
     "mid-training pipelines and weights",
     "RoboDojo",
@@ -69,5 +70,5 @@
     "joint human/robot scaling",
     "GoalWAM and in-context learning"
   ],
-  "known_difference": "The provisional 100kh recipe / post12k budget is not the lineage of the current evaluated checkpoint."
+  "model": "HumanWAM-Vanilla"
 }

@@ -68,6 +68,6 @@
   "weights_published": false,
   "main_policy_reference": "paper_alignment.json",
   "deduplication": "Shared controls have one canonical weight destination and references from other groups.",
-  "scope": "RoboTwin post-trained weights only",
-  "catalog_status": "Earlier 495-checkpoint inventory predates latest main-result and ablation changes; full refreshed catalog pending."
+  "scope": "HumanWAM-Vanilla checkpoints across pretraining and adaptation; current catalog lists the initial RoboTwin experiment groups",
+  "catalog_status": "Earlier 495-checkpoint inventory predates latest main-result and ablation changes; full refreshed catalog pending. Full Vanilla checkpoint catalog to be added."
 }

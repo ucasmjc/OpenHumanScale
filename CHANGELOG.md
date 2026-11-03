@@ -5,6 +5,10 @@ Completed public updates are recorded here. Future work is tracked in
 
 ## 2026-11-03
 
+- Organize the repository by model: move the existing package, configuration,
+  scripts, tests, and provenance under `humanwam_vanilla/`; reserve `humanwam_goal/`.
+- Correct the scope to the full HumanWAM-Vanilla release, remove the static ban
+  on pretraining modules, and track remaining workflows explicitly in the roadmap.
 - Put arXiv, Project Page, Hugging Face dataset/model, and ModelScope dataset
   logo badges at the top of the README; mark unpublished resources as coming soon.
 - Add a resource index distinguishing dataset conversion, upload, and public availability.

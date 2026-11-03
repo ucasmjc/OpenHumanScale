@@ -6,7 +6,7 @@ build/
 dist/
 .venv/
 .env
-configs/paths.local.yaml
+**/configs/paths.local.yaml
 runs/
 data/
 weights/

@@ -33,11 +33,12 @@ is a separate resource, not the converted 50k-hour collection.
 
 ## Models
 
-**Hugging Face: coming soon.** RoboTwin post-trained policies are planned under
+**Hugging Face: coming soon.** HumanWAM-Vanilla checkpoints are planned under
 one OpenHumanScale Collection in `DAGroup-PKU`, with one repository per experiment
 group. The main policy bundle and evaluation interface are the next code/model
 milestone; see the [release plan](../ROADMAP.md).
 
-This repository releases RoboTwin post-training code and policies. Showing the
-paper's HumanWAM-Goal zero-shot results does not mean its pretrained weights or
-training pipeline are included in this preview.
+The full HumanWAM-Vanilla release lives under [humanwam_vanilla/](../humanwam_vanilla/),
+with individual workflows and checkpoints marked as available when packaged.
+[HumanWAM-Goal](../humanwam_goal/) will be released separately within this repository;
+its code and weights are not available yet.

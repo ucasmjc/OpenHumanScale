@@ -43,5 +43,5 @@ def test_episode_timestamps_keep_video_offset_and_frame_order(tmp_path, monkeypa
 def test_pretrain_archive_binding_is_not_silently_decoded(tmp_path):
     (tmp_path / 'video_binding.json').write_text('{}')
     dataset = SimpleNamespace(root=tmp_path)
-    with pytest.raises(ValueError, match='Pretraining video archives'):
+    with pytest.raises(ValueError, match='video_binding.json archive inputs'):
         LeRobotDataset._query_videos(dataset, {'cam_high': [0.0]}, 0)

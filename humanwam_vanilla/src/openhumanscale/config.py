@@ -34,7 +34,7 @@ def validate_config(cfg, *, check_files=False):
         raise ValueError('Normalization provenance validation must remain enabled')
     for key in ('ego_replay', 'edit_mix', 'wds'):
         if data.get(key):
-            raise ValueError(f'data.{key} is outside the RoboTwin release scope')
+            raise ValueError(f'data.{key} is not supported by this RoboTwin fine-tuning entry point')
     model = value['model']
     if model.get('_target_') != 'fastwam.runtime.create_fastwam' or model.get('model_class') != 'fastwam.models.wan22.fastwam_idm.FastWAMIDM':
         raise ValueError('This initial source profile requires the exported IDM model factory')

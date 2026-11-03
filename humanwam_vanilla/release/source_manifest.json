@@ -118,7 +118,7 @@
     {
       "path": "src/fastwam/datasets/lerobot/lerobot/lerobot_dataset.py",
       "original_sha256": "93b0372bdd243d4548e7e397a88a04b24be21a1068c56af08ee36f98f4b84a8e",
-      "exported_sha256": "15a5484f6615bb3ed3833035b75b55ea3a2e3f6d29afa648dccdfa5a740a8dcd",
+      "exported_sha256": "eb7ef334fc99273d4b6e44aa4a6729ce183f4c32214aec82cade695874197dcb",
       "changed": true,
       "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header"
     },
@@ -944,5 +944,6 @@
         ]
       }
     }
-  ]
+  ],
+  "path_base": "humanwam_vanilla/ (paths are relative to this model directory)"
 }

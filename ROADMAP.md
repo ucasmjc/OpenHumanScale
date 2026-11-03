@@ -2,19 +2,23 @@
 
 **Last updated: 2026-11-03 · Current stage: public code preview · Next: main policy and evaluation**
 
-This is the maintained plan for the **RoboTwin post-training** release. It covers
-code, post-trained weights, related experiments, and evaluation. Pretraining and
-mid-training pipelines/initialization weights, RoboDojo, and real-robot/HumanWAM-Goal
-code are outside this plan.
+This is the maintained plan for the **full HumanWAM-Vanilla open-source release**
+and the subsequent **HumanWAM-Goal** release. Vanilla includes data processing,
+pretraining, mid-training, post-training, evaluation, checkpoints, and experiments.
+Current code lives in [humanwam_vanilla/](humanwam_vanilla/); Goal has a separate
+[humanwam_goal/](humanwam_goal/) directory and is coming soon.
 
 The README presents the paper's scaling and zero-shot findings. Real-robot demos
-belong on the project page; paper figures do not expand the code release scope.
+belong on the project page. A paper result is not a claim that its corresponding
+workflow or downloadable checkpoint is already available.
 
 Milestones are ordered by delivery priority. Dates are announced in README News
 when confirmed; the items below do not imply a promised release date.
 
 ## M0 — Code preview (complete)
 
+- [x] Move existing source, configurations, scripts, tests, and packaging into `humanwam_vanilla/`.
+- [x] Reserve `humanwam_goal/` with an explicit coming-soon model entry.
 - [x] Publish the main HumanWAM source and RoboTwin post-training entry point.
 - [x] Separate local resource paths from five configuration references.
 - [x] Add the experiment index and manuscript-result provenance.
@@ -22,7 +26,7 @@ when confirmed; the items below do not imply a promised release date.
 - [x] Publish scaling and zero-shot result figures, with source provenance, and project documentation.
 
 Evidence: [initial code commit](https://github.com/ucasmjc/OpenHumanScale/commit/f39b1e1e17d5fb4971f4efda4d178103e70cc150),
-[verification record](release/verification.json), and [source manifest](release/source_manifest.json).
+[verification record](humanwam_vanilla/release/verification.json), and [source manifest](humanwam_vanilla/release/source_manifest.json).
 Passing these checks does not establish GPU or simulator reproduction.
 
 ## M1 — Main policy and evaluation (in progress)
@@ -62,7 +66,26 @@ post-trained checkpoint.
 New jobs use the full intended training corpus, `val_set_proportion: 0.0`, and
 `separate_ego_action_tokenizer: true`. Historical configurations remain records
 of their original runs. Fine-tuning released policies does not recreate the
-private pretraining-to-post-training trajectory.
+complete pretraining-to-post-training trajectory.
+
+## Full HumanWAM-Vanilla workflows (in progress)
+
+- [ ] Package the complete pretraining source and data loaders previously omitted
+  from the initial RoboTwin export; validate dependencies and portable configuration.
+- [ ] Release data processing, alignment, and corpus preparation entry points.
+- [ ] Package mid-training and initialization/checkpoint loading workflows.
+- [ ] Publish pretraining and adaptation checkpoint/config/statistics mappings.
+- [ ] Add RoboDojo and real-robot evaluation/deployment workflows for Vanilla.
+- [ ] Validate and document the full training-to-evaluation workflow.
+
+These are release deliverables, not scope exclusions. The initial RoboTwin
+fine-tuning entry point is one part of the full Vanilla implementation.
+
+## HumanWAM-Goal (coming soon)
+
+- [ ] Add the implementation and model-specific dependencies under `humanwam_goal/`.
+- [ ] Add hybrid training, visual-goal conditioning, adaptation, and evaluation configurations.
+- [ ] Publish checkpoint links and reproduce the documented deployment workflows.
 
 ## M3 — All related RoboTwin experiments (planned)
 
@@ -92,7 +115,7 @@ For each group:
 
 **Complete when:** every included paper experiment maps to downloadable,
 compatible post-trained artifacts and runnable evaluation settings. See the
-[experiment index](docs/experiments.md) for the proposed repository grouping.
+[experiment index](humanwam_vanilla/docs/experiments.md) for the proposed repository grouping.
 
 ## Publication and documentation (ongoing)
 
@@ -117,7 +140,7 @@ compatible post-trained artifacts and runnable evaluation settings. See the
   Announce substantive deliveries in **News**, with dates and working links.
 - Record completed changes in [CHANGELOG.md](CHANGELOG.md). Planned work belongs
   here; do not list it as a completed update.
-- Refresh `release/status.json` when capabilities change. Preserve dated
+- Refresh `humanwam_vanilla/release/status.json` when capabilities change. Preserve dated
   verification records and clearly identify the code/assets they validate.
 - If scope or priorities change, update this plan and the README together;
-  do not silently expand the release to pretraining or other benchmarks.
+  keep the model-specific availability and project-wide release scope consistent.

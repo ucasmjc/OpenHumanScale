@@ -35,8 +35,9 @@ checkpoint associated with the current main-result numbers.
 
 The manuscript also describes a provisional 100kh recipe and a 12k RoboTwin
 post-training budget. These are not relabeled as the lineage of the evaluated
-50kh/post21k policy. Its broader pretraining release language does not expand
-this repository's scope: only RoboTwin post-training is included.
+50kh/post21k policy. HumanWAM-Vanilla is now scoped for a full release, including pretraining.
+The current packaged entry point still covers RoboTwin fine-tuning; additional
+workflows and checkpoint assets are being prepared.
 
 The new attention/action-representation and action-initialization ablations have
 been added to the experiment index. Their executable profiles and exact weight

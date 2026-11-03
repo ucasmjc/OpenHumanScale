@@ -12,7 +12,8 @@
     "Preserved existing MIT and vendored Apache license notices",
     "17 CPU tests passed, including an actual MP4 decode",
     "Core imports succeeded offline without visible GPUs",
-    "Wheel builds and includes source license notices"
+    "Wheel builds and includes source license notices",
+    "Organized the existing package under humanwam_vanilla; HumanWAM-Goal directory reserved separately"
   ],
   "pending": [
     "Bind and validate full checkpoint/config/normalizer triples",
@@ -20,14 +21,18 @@
     "Integrate the exact simulator adapter and evaluation seeds",
     "Finish other experiment source profiles including Optional-IDM and model ablations",
     "Validate clean installation and GPU forward/backward plus loader coverage",
-    "Trace exact upstream Wan revisions in the inherited FastWAM source"
+    "Trace exact upstream Wan revisions in the inherited FastWAM source",
+    "Package full pretraining and mid-training workflows omitted from the original export",
+    "Package Vanilla RoboDojo and real-robot workflows"
   ],
   "weight_files_included": false,
   "weight_downloads_available": false,
   "pretraining_included": false,
-  "roadmap": "ROADMAP.md",
+  "roadmap": "../../ROADMAP.md",
   "current_milestone": "M1",
   "next_deliverable": "Main RoboTwin policy bundle and evaluation interface",
   "readme_manuscript_revision": "9a84e02f539ea5c928c0852b1c6248e2cd68f7e5",
-  "resources": "docs/resources.md"
+  "resources": "../../docs/resources.md",
+  "model": "HumanWAM-Vanilla",
+  "release_scope": "Full model release: data processing, pretraining, mid-training, post-training, evaluation, and experiments"
 }
