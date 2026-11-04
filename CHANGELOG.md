@@ -5,6 +5,8 @@ Completed public updates are recorded here. Future work is tracked in
 
 ## 2026-11-04
 
+- Add an original blue/violet Open-HumanScale wordmark to the README header.
+
 - Update the title and teaser from manuscript revision `3069a9e`.
 - Add hybrid post-training scaling and the HumanWAM-Goal RoboTwin result:
   92.70% Clean2Clean, 84.60% Clean2Random, and 88.65% average.
