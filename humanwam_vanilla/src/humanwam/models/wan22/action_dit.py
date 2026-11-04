@@ -1,5 +1,4 @@
 # Modified by Open-HumanScale contributors: package namespace renamed to humanwam.
-import os
 import torch
 import torch.nn as nn
 from typing import Any, Dict, Optional
@@ -10,8 +9,7 @@ from .helpers.gradient import gradient_checkpoint_forward
 from .wan_video_dit import (
     DiTBlock,
     sinusoidal_embedding_1d,
-    precompute_freqs_cis,
-)
+    precompute_freqs_cis)
 
 logger = get_logger(__name__)
 
@@ -64,13 +62,6 @@ class ActionDiT(nn.Module):
         self.num_heads = num_heads
         self.attn_head_dim = attn_head_dim
 
-        if num_heads <= 0:
-            raise ValueError(f"`num_heads` must be > 0, got {num_heads}")
-        if attn_head_dim <= 0:
-            raise ValueError(f"`attn_head_dim` must be > 0, got {attn_head_dim}")
-        if attn_head_dim % 2 != 0:
-            raise ValueError(f"`attn_head_dim` must be even for RoPE, got {attn_head_dim}")
-
         self.action_encoder = nn.Linear(action_dim, hidden_dim)
         self.text_embedding = nn.Sequential(
             nn.Linear(text_dim, hidden_dim),
@@ -111,33 +102,8 @@ class ActionDiT(nn.Module):
 
         raw_sources = action_tokenizer_sources or []
         self.action_tokenizer_sources = tuple(str(source) for source in raw_sources)
-        if len(set(self.action_tokenizer_sources)) != len(self.action_tokenizer_sources):
-            raise ValueError(
-                "action_tokenizer_sources must not contain duplicates: "
-                f"{self.action_tokenizer_sources}"
-            )
-        for source in self.action_tokenizer_sources:
-            if not source or not source.isidentifier():
-                raise ValueError(
-                    "Action tokenizer source names must be non-empty Python-style "
-                    f"identifiers, got {source!r}"
-                )
         if self.action_tokenizer_sources:
-            if default_action_tokenizer_source is None:
-                raise ValueError(
-                    "default_action_tokenizer_source is required when "
-                    "action_tokenizer_sources are configured"
-                )
             default_action_tokenizer_source = str(default_action_tokenizer_source)
-            if default_action_tokenizer_source not in self.action_tokenizer_sources:
-                raise ValueError(
-                    "default_action_tokenizer_source must be one of "
-                    f"action_tokenizer_sources, got {default_action_tokenizer_source!r}"
-                )
-        elif default_action_tokenizer_source is not None:
-            raise ValueError(
-                "default_action_tokenizer_source requires action_tokenizer_sources"
-            )
         self.default_action_tokenizer_source = default_action_tokenizer_source
         extra_sources = [
             source
@@ -167,10 +133,6 @@ class ActionDiT(nn.Module):
         """
         if not self.separate_ego_action_tokenizer:
             return
-        if self.ego_action_encoder is None or self.ego_head is None:
-            raise RuntimeError(
-                "Separate Ego action tokenizer is enabled but its modules are missing."
-            )
         self.ego_action_encoder.load_state_dict(
             self.action_encoder.state_dict(), strict=True
         )
@@ -243,16 +205,7 @@ class ActionDiT(nn.Module):
         if action_tokenizer_source is not None:
             source = str(action_tokenizer_source)
             if source == self.LEGACY_EGO_ROUTE:
-                if self.ego_action_encoder is None or self.ego_head is None:
-                    raise RuntimeError(
-                        "Legacy Ego action-tokenizer route requested but the Ego adapter is disabled."
-                    )
                 return self.ego_action_encoder, self.ego_head
-            if source not in self.action_tokenizer_sources:
-                raise ValueError(
-                    f"Unknown action tokenizer source {source!r}; configured="
-                    f"{self.action_tokenizer_sources}"
-                )
             if source == self.default_action_tokenizer_source:
                 return self.action_encoder, self.head
             return self.source_action_encoders[source], self.source_heads[source]
@@ -260,10 +213,6 @@ class ActionDiT(nn.Module):
         if use_ego_action_tokenizer:
             if not self.separate_ego_action_tokenizer:
                 return self.action_encoder, self.head
-            if self.ego_action_encoder is None or self.ego_head is None:
-                raise RuntimeError(
-                    "Separate Ego action tokenizer is enabled but its modules are missing."
-                )
             return self.ego_action_encoder, self.ego_head
         return self.action_encoder, self.head
 
@@ -283,16 +232,7 @@ class ActionDiT(nn.Module):
             )
             if len(values) == 1 and batch_size > 1:
                 values = values * batch_size
-            if len(values) != batch_size:
-                raise ValueError(
-                    "action_tokenizer_source must be scalar or have one value per "
-                    f"sample; got {len(values)} values for batch_size={batch_size}"
-                )
             return values
-        raise TypeError(
-            "action_tokenizer_source must be None, a string, or a sequence of strings; "
-            f"got {type(action_tokenizer_source).__name__}"
-        )
 
     def _encode_action_tokens(
         self,
@@ -363,8 +303,6 @@ class ActionDiT(nn.Module):
         device: str = "cuda",
         torch_dtype: torch.dtype = torch.bfloat16,
     ) -> "ActionDiT":
-        if action_dit_config is None:
-            raise ValueError("`action_dit_config` is required for ActionDiT.from_pretrained().")
         if skip_dit_load_from_pretrain:
             logger.info(
                 "Skipping ActionDiT pretrained load (`skip_dit_load_from_pretrain=True`); "
@@ -379,10 +317,6 @@ class ActionDiT(nn.Module):
         if not p.is_absolute():
             p = Path(__file__).resolve().parents[4] / p
         action_dit_pretrained_path = str(p)
-        if not os.path.isfile(action_dit_pretrained_path):
-            raise FileNotFoundError(
-                f"`action_dit_pretrained_path` does not exist: {action_dit_pretrained_path}"
-            )
 
         action_cfg = dict(action_dit_config)
         action_expert = cls(**action_cfg).to(device=device, dtype=torch_dtype)
@@ -390,74 +324,17 @@ class ActionDiT(nn.Module):
         expected_backbone_keys = cls.backbone_key_set(action_state.keys())
 
         payload = torch.load(action_dit_pretrained_path, map_location="cpu")
-        if not isinstance(payload, dict):
-            raise ValueError(
-                f"Invalid action backbone payload type from {action_dit_pretrained_path}: {type(payload)}"
-            )
 
         policy = payload.get("policy", {})
         if policy:
             logger.info(f"ActionDiT backbone payload policy: {policy}")
 
-        meta = payload.get("meta")
-        expected_meta = {
-            "hidden_dim": int(action_cfg["hidden_dim"]),
-            "ffn_dim": int(action_cfg["ffn_dim"]),
-            "num_layers": int(action_cfg["num_layers"]),
-            "num_heads": int(action_cfg["num_heads"]),
-            "attn_head_dim": int(action_cfg["attn_head_dim"]),
-            "text_dim": int(action_cfg["text_dim"]),
-            "freq_dim": int(action_cfg["freq_dim"]),
-            "eps": float(action_cfg["eps"]),
-        }
-        for key in cls.ACTION_BACKBONE_META_KEYS:
-            if key not in meta:
-                raise ValueError(f"`meta.{key}` missing in {action_dit_pretrained_path}")
-            expected_value = expected_meta[key]
-            got_value = meta[key]
-            if key == "eps":
-                if abs(float(got_value) - float(expected_value)) > 1e-12:
-                    raise ValueError(
-                        f"`meta.{key}` mismatch in {action_dit_pretrained_path}: "
-                        f"expected {expected_value}, got {got_value}"
-                    )
-            elif int(got_value) != int(expected_value):
-                raise ValueError(
-                    f"`meta.{key}` mismatch in {action_dit_pretrained_path}: "
-                    f"expected {expected_value}, got {got_value}"
-                )
-
         backbone_state_dict = payload.get("backbone_state_dict")
-        if not isinstance(backbone_state_dict, dict):
-            raise ValueError(
-                f"`backbone_state_dict` must be a dict in {action_dit_pretrained_path}, "
-                f"got {type(backbone_state_dict)}"
-            )
-
-        provided_keys = set(backbone_state_dict.keys())
-        missing_keys = sorted(expected_backbone_keys - provided_keys)
-        unexpected_keys = sorted(provided_keys - expected_backbone_keys)
-        if missing_keys or unexpected_keys:
-            raise ValueError(
-                "Action backbone key mismatch in preprocessed payload. "
-                f"missing={missing_keys[:10]}{'...' if len(missing_keys) > 10 else ''}, "
-                f"unexpected={unexpected_keys[:10]}{'...' if len(unexpected_keys) > 10 else ''}"
-            )
 
         merged_state = dict(action_state)
         for key in expected_backbone_keys:
             value = backbone_state_dict[key]
-            if not isinstance(value, torch.Tensor):
-                raise ValueError(
-                    f"`backbone_state_dict[{key}]` must be torch.Tensor in {action_dit_pretrained_path}, "
-                    f"got {type(value)}"
-                )
             target = merged_state[key]
-            if tuple(value.shape) != tuple(target.shape):
-                raise ValueError(
-                    f"Shape mismatch for `{key}` in {action_dit_pretrained_path}: "
-                    f"expected {tuple(target.shape)}, got {tuple(value.shape)}"
-                )
             merged_state[key] = value.to(device=target.device, dtype=target.dtype)
 
         action_expert.load_state_dict(merged_state, strict=True)
@@ -479,61 +356,20 @@ class ActionDiT(nn.Module):
         use_ego_action_tokenizer: bool = False,
         action_tokenizer_source=None,
     ) -> Dict[str, Any]:
-        if action_tokens.ndim != 3:
-            raise ValueError(
-                f"`action_tokens` must be 3D [B, T, action_dim], got shape {tuple(action_tokens.shape)}"
-            )
-        if action_tokens.shape[2] != self.action_dim:
-            raise ValueError(
-                f"`action_tokens` last dim must be {self.action_dim}, got {action_tokens.shape[2]}"
-            )
-        if timestep.ndim != 1:
-            raise ValueError(f"`timestep` must be 1D [B] or [1], got shape {tuple(timestep.shape)}")
-        if context.ndim != 3:
-            raise ValueError(
-                f"`context` must be 3D [B, L, D], got shape {tuple(context.shape)}"
-            )
 
         batch_size = action_tokens.shape[0]
-        if context.shape[0] != batch_size:
-            raise ValueError(
-                f"Batch mismatch between action tokens and text context: {batch_size} vs {context.shape[0]}"
-            )
-        if timestep.shape[0] not in (1, batch_size):
-            raise ValueError(
-                f"`timestep` length must be 1 or batch_size({batch_size}), got {timestep.shape[0]}"
-            )
         if timestep.shape[0] == 1 and batch_size > 1:
-            if self.training:
-                raise ValueError("During training, action timestep length must match batch_size.")
             timestep = timestep.expand(batch_size)
 
         if context_mask is None:
             context_mask = torch.ones(
                 (batch_size, context.shape[1]), dtype=torch.bool, device=context.device
             )
-        else:
-            if context_mask.ndim != 2:
-                raise ValueError(f"`context_mask` must be 2D [B, L], got shape {tuple(context_mask.shape)}")
-            if context_mask.shape[0] != batch_size or context_mask.shape[1] != context.shape[1]:
-                raise ValueError(
-                    f"`context_mask` shape must match `context` shape [B, L], got {tuple(context_mask.shape)} vs {tuple(context.shape)}"
-                )
 
         seq_len = action_tokens.shape[1]
-        if seq_len > self.freqs.shape[0]:
-            raise ValueError(
-                f"Action token length {seq_len} exceeds RoPE cache {self.freqs.shape[0]}."
-            )
 
         t = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timestep))
         t_mod = self.time_projection(t).unflatten(1, (6, self.hidden_dim))
-
-        if use_ego_action_tokenizer and action_tokenizer_source is not None:
-            raise ValueError(
-                "Legacy use_ego_action_tokenizer and action_tokenizer_source routing "
-                "cannot be enabled together."
-            )
         action_tokenizer_route = self._normalize_action_tokenizer_route(
             action_tokenizer_source, batch_size
         )

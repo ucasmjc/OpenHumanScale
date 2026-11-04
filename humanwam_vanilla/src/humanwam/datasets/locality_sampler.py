@@ -50,23 +50,9 @@ class HierarchicalShardSampler(Sampler[int]):
         self.block_size = int(block_size)
         self.require_equal_rank_lengths = bool(require_equal_rank_lengths)
         self.epoch = 0
-        if not self.shard_ids:
-            raise ValueError("shard_ids must not be empty")
-        if self.num_replicas <= 0:
-            raise ValueError("num_replicas must be positive")
-        if not 0 <= self.rank < self.num_replicas:
-            raise ValueError(
-                f"rank must be in [0, {self.num_replicas}), got {self.rank}"
-            )
-        if self.block_size <= 0:
-            raise ValueError("block_size must be positive")
 
         indices_by_shard: dict[Hashable, list[int]] = defaultdict(list)
         for index, shard_id in enumerate(self.shard_ids):
-            if not isinstance(shard_id, Hashable):
-                raise TypeError(
-                    f"shard id at position {index} is not hashable: {shard_id!r}"
-                )
             indices_by_shard[shard_id].append(index)
         self._indices_by_shard = dict(indices_by_shard)
         # repr sorting only establishes a stable pre-permutation order; all visible
@@ -89,13 +75,6 @@ class HierarchicalShardSampler(Sampler[int]):
             rank = min(range(self.num_replicas), key=lambda value: (loads[value], value))
             assigned[rank].append(shard)
             loads[rank] += len(self._indices_by_shard[shard])
-        if self.require_equal_rank_lengths and len(set(loads)) != 1:
-            raise ValueError(
-                "whole-shard assignment produced unequal rank lengths: "
-                f"{loads}; rebalance shard sizes, use one virtual shard per global "
-                "batch multiple, or disable require_equal_rank_lengths with an "
-                "uneven-input-safe distributed join"
-            )
         return assigned, loads
 
     def rank_loads(self) -> tuple[int, ...]:

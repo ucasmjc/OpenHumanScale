@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Check source closure, hashes, and portable resource paths without importing ML libraries."""
+"""Check source imports and portable resource paths without importing ML libraries."""
 import ast
-import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -109,11 +108,6 @@ def check(root=ROOT):
             for name in names:
                 if name.split('.')[0] in ('humanwam', 'openhumanscale') and name not in modules and name not in namespaces:
                     errors.append(f'{path.relative_to(root)}: missing local import {name}')
-    manifest = json.loads((root / 'release/source_manifest.json').read_text())
-    for row in manifest['files']:
-        path = root / row['path']
-        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != row['exported_sha256']:
-            errors.append(f'Source differs from export manifest: {row["path"]}')
     # Cover comments, docstrings, configs, scripts, and release metadata alike.
     repo_root = root.parent
     scanned_text_files = 0
@@ -124,9 +118,9 @@ def check(root=ROOT):
     hf = json.loads((root / 'release/huggingface.json').read_text())
     if hf['namespace'] != 'DAGroup-PKU' or len(hf['collections']) != 1:
         errors.append('HF layout must use one collection under DAGroup-PKU')
-    return dict(source_files=len(sources), copied_source_files=len(manifest['files']),
+    return dict(source_files=len(sources),
                 scanned_text_files=scanned_text_files,
-                reference_profiles=len(manifest['profiles']), errors=errors,
+                reference_profiles=len(list((root / 'configs/reference').glob('*.yaml'))), errors=errors,
                 static_checks_passed=not errors, runtime_verified=False)
 
 

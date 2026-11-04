@@ -23,5 +23,4 @@ class Pad(nn.Module):
         self.pad = TF.Pad(padding=tuple(padding), fill=fill, padding_mode=padding_mode)
 
     def forward(self, x: torch.Tensor):
-        assert x.ndim == 4, "Can only pad tensor of 4 dims."
         return self.pad(x)

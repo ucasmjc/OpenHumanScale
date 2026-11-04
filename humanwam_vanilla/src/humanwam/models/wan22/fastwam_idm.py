@@ -23,11 +23,6 @@ class FastWAMIDM(FastWAMJoint):
     @staticmethod
     def _concat_teacher_forcing_freqs(noisy_freqs: torch.Tensor, cond_freqs: torch.Tensor) -> torch.Tensor:
         """Concatenate dense or per-sample VideoDiT RoPE frequencies by sequence."""
-        if noisy_freqs.ndim != cond_freqs.ndim or noisy_freqs.ndim not in (3, 4):
-            raise ValueError(
-                "Teacher-forcing video RoPE shapes must both be [S,1,D] or [B,S,1,D], "
-                f"got {tuple(noisy_freqs.shape)} and {tuple(cond_freqs.shape)}."
-            )
         return torch.cat([noisy_freqs, cond_freqs], dim=0 if noisy_freqs.ndim == 3 else 1)
 
     def _build_inference_video_layout(
@@ -50,11 +45,6 @@ class FastWAMIDM(FastWAMJoint):
 
         if self.goal_targets in ("short", "both") and self.goal_short_rope_index is not None:
             temporal_index[:, 1] = int(self.goal_short_rope_index)
-        if self.goal_targets in ("long", "both") and self.goal_long_rope_mode == "distance":
-            raise ValueError(
-                "IDM inference with `goal_long_rope_mode='distance'` requires a runtime long-goal "
-                "temporal index, which `infer_joint` does not currently accept."
-            )
         return latent_t, temporal_index
 
     @torch.no_grad()
@@ -69,11 +59,6 @@ class FastWAMIDM(FastWAMJoint):
         device: torch.device,
     ) -> torch.Tensor:
         del batch_size
-        if noisy_video_tokens_per_frame != cond_video_tokens_per_frame:
-            raise ValueError(
-                "Teacher-forcing requires identical `tokens_per_frame` for noisy and cond video branches, "
-                f"got {noisy_video_tokens_per_frame} and {cond_video_tokens_per_frame}."
-            )
 
         noisy_end = noisy_video_seq_len
         cond_end = noisy_video_seq_len + cond_video_seq_len
@@ -124,8 +109,6 @@ class FastWAMIDM(FastWAMJoint):
                 head_reads_wrist0=self.packed_head_reads_wrist0,
             )
         noisy_mask, cond_mask = build(video_pre_noisy), build(video_pre_cond)
-        if noisy_mask.dtype != torch.bool or cond_mask.dtype != torch.bool:
-            raise ValueError("IDM three-view masks require wrist_attention_gate == 1 (no ramp).")
         noisy_len, cond_len = int(noisy_mask.shape[0]), int(cond_mask.shape[0])
         noisy_end, cond_end = noisy_len, noisy_len + cond_len
         total = cond_end + int(action_seq_len)
@@ -140,12 +123,6 @@ class FastWAMIDM(FastWAMJoint):
         return mask
 
     def training_loss(self, sample, tiled: bool = False):
-        if self.video_vae_layout not in self.IDM_TRAIN_LAYOUTS:
-            raise ValueError(
-                f"FastWAMIDM training supports {sorted(self.IDM_TRAIN_LAYOUTS)}, got {self.video_vae_layout!r}."
-            )
-        if getattr(self, "action_component_indices", None) is not None:
-            raise ValueError("FastWAMIDM training does not support explicit action component layouts.")
         inputs = self.build_inputs(sample, tiled=tiled)
         input_latents = inputs["input_latents"]
         batch_size = input_latents.shape[0]
@@ -158,17 +135,10 @@ class FastWAMIDM(FastWAMJoint):
             )
         use_ego_action_tokenizer = False
         if self.action_expert.separate_ego_action_tokenizer and source_is_ego is not None:
-            if not bool(torch.all(source_is_ego == source_is_ego[0]).item()):
-                raise ValueError("FastWAMIDM does not support mixed Ego/robot batches with separate tokenizers.")
             use_ego_action_tokenizer = bool(source_is_ego[0].item())
         elif self.action_expert.separate_ego_action_tokenizer:
             use_ego_action_tokenizer = self._batch_uses_ego_action_tokenizer(sample, batch_size)
         action_tokenizer_source = self._batch_action_tokenizer_source(sample, batch_size)
-        if self.action_expert.action_tokenizer_sources and action_tokenizer_source is None:
-            raise ValueError(
-                "ActionDiT has source-specific tokenizers configured, but the batch "
-                "does not contain `action_tokenizer_source`."
-            )
         context = inputs["context"]
         context_mask = inputs["context_mask"]
         action = inputs["action"]
@@ -242,11 +212,6 @@ class FastWAMIDM(FastWAMJoint):
             wrist_attention_gate=float(inputs.get("wrist_attention_gate", 1.0)),
             packed_wrist_latents=inputs.get("packed_wrist_latents"),
         )
-        if video_pre_noisy["t_mod"].ndim != 4 or video_pre_cond["t_mod"].ndim != 4:
-            raise ValueError(
-                "Teacher-forcing requires token-wise `t_mod`; "
-                "ensure `seperated_timestep=true` and `fuse_vae_embedding_in_latents=true`."
-            )
 
         action_pre = self.action_expert.pre_dit(
             action_tokens=noisy_action,
@@ -484,32 +449,12 @@ class FastWAMIDM(FastWAMJoint):
 
         if input_image.ndim == 3:
             input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(
-                f"`input_image` must have shape [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}"
-            )
         _, _, height, width = input_image.shape
         checked_h, checked_w, checked_t = self._check_resize_height_width(height, width, num_video_frames)
-        if (checked_h, checked_w) != (height, width):
-            raise ValueError(
-                f"`input_image` must be resized before infer, expected multiples of 16 but got HxW=({height},{width})"
-            )
-        if checked_t != num_video_frames:
-            raise ValueError(
-                f"`num_video_frames` must satisfy T % 4 == 1, got {num_video_frames}"
-            )
 
         if proprio is not None:
-            if self.proprio_dim is None:
-                raise ValueError("`proprio` was provided but `proprio_dim=None` so `proprio_encoder` is disabled.")
             if proprio.ndim == 1:
                 proprio = proprio.unsqueeze(0)
-            elif proprio.ndim == 2 and proprio.shape[0] == 1:
-                pass
-            else:
-                raise ValueError(f"`proprio` must be [D] or [1,D], got shape {tuple(proprio.shape)}")
-            if proprio.shape[1] != self.proprio_dim:
-                raise ValueError(f"`proprio` last dim must be {self.proprio_dim}, got {proprio.shape[1]}")
             proprio = proprio.to(device=self.device, dtype=self.torch_dtype)
 
         latent_t, temporal_index = self._build_inference_video_layout(num_video_frames)
@@ -537,25 +482,14 @@ class FastWAMIDM(FastWAMJoint):
         fuse_flag = bool(getattr(self.video_expert, "fuse_vae_embedding_in_latents", False))
 
         use_prompt = prompt is not None
-        use_context = context is not None or context_mask is not None
-        if use_prompt and use_context:
-            raise ValueError("`prompt` and `context/context_mask` are mutually exclusive.")
-        if not use_prompt and not use_context:
-            raise ValueError("Either `prompt` or both `context/context_mask` must be provided.")
 
         if use_prompt:
             context, context_mask = self.encode_prompt(prompt)
         else:
-            if context is None or context_mask is None:
-                raise ValueError("`context` and `context_mask` must be both provided together.")
             if context.ndim == 2:
                 context = context.unsqueeze(0)
             if context_mask.ndim == 1:
                 context_mask = context_mask.unsqueeze(0)
-            if context.ndim != 3 or context_mask.ndim != 2:
-                raise ValueError(
-                    f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
-                )
             context = context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
             context_mask = context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True)
         if proprio is not None:

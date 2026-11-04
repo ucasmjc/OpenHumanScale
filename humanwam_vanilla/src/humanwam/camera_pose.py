@@ -30,17 +30,7 @@ def _identity_4x4(
 
 def quaternion_wxyz_to_matrix(quaternion: torch.Tensor) -> torch.Tensor:
     """Convert ``[..., 4]`` real-first quaternions to rotation matrices."""
-
-    if quaternion.shape[-1] != 4:
-        raise ValueError(
-            "Quaternion must end in four wxyz components, got "
-            f"{tuple(quaternion.shape)}."
-        )
     norm_sq = quaternion.square().sum(dim=-1, keepdim=True)
-    if bool(torch.any(~torch.isfinite(norm_sq)).item()) or bool(
-        torch.any(norm_sq <= 1.0e-12).item()
-    ):
-        raise ValueError("Camera quaternion contains non-finite or zero-norm values.")
     w, x, y, z = (quaternion / norm_sq.sqrt()).unbind(dim=-1)
     two = 2.0
     matrix = torch.stack(
@@ -64,15 +54,8 @@ def camera_pose7_to_matrix(camera_pose: torch.Tensor) -> torch.Tensor:
     """Convert camera-to-world ``[..., 7]`` xyz+quaternion_wxyz poses."""
 
     camera_pose = torch.as_tensor(camera_pose)
-    if camera_pose.shape[-1] != 7:
-        raise ValueError(
-            "Camera pose must end in xyz+quaternion_wxyz (7 values), got "
-            f"{tuple(camera_pose.shape)}."
-        )
     if not camera_pose.is_floating_point():
         camera_pose = camera_pose.float()
-    if bool(torch.any(~torch.isfinite(camera_pose)).item()):
-        raise ValueError("Camera pose contains non-finite values.")
     matrix = torch.zeros(
         camera_pose.shape[:-1] + (4, 4),
         dtype=camera_pose.dtype,
@@ -84,7 +67,7 @@ def camera_pose7_to_matrix(camera_pose: torch.Tensor) -> torch.Tensor:
     return matrix
 
 
-def _validate_pose_valid(
+def _prepare_pose_valid(
     pose_valid: torch.Tensor | None,
     pose_shape: tuple[int, ...],
     *,
@@ -93,17 +76,6 @@ def _validate_pose_valid(
     if pose_valid is None:
         return torch.ones(pose_shape, dtype=torch.bool, device=device)
     valid = torch.as_tensor(pose_valid, dtype=torch.bool, device=device)
-    if tuple(valid.shape) != pose_shape:
-        raise ValueError(
-            "Camera-pose validity shape mismatch: "
-            f"got {tuple(valid.shape)}, expected {pose_shape}."
-        )
-    if not bool(torch.all(valid[..., 0]).item()):
-        raise ValueError("The first camera pose in every clip must be valid.")
-    # LeRobot padding is tail-only.  Reject false->true transitions because silently
-    # filling an interior pose would change the trajectory geometry.
-    if valid.shape[-1] > 1 and bool(torch.any((~valid[..., :-1]) & valid[..., 1:]).item()):
-        raise ValueError("Camera-pose validity must be a valid prefix followed by padding.")
     return valid
 
 
@@ -131,12 +103,7 @@ def camera_to_world_pose7_to_delta(
     """
 
     camera_pose = torch.as_tensor(camera_pose)
-    if camera_pose.ndim < 2:
-        raise ValueError(
-            "Camera pose must include a time dimension, got "
-            f"{tuple(camera_pose.shape)}."
-        )
-    valid = _validate_pose_valid(
+    valid = _prepare_pose_valid(
         pose_valid,
         tuple(camera_pose.shape[:-1]),
         device=camera_pose.device,
@@ -153,9 +120,6 @@ def camera_to_world_pose7_to_delta(
 
 def rotation_angle(rotation: torch.Tensor) -> torch.Tensor:
     """Return the SO(3) geodesic angle in radians for ``[..., 3, 3]``."""
-
-    if rotation.shape[-2:] != (3, 3):
-        raise ValueError(f"Rotation must be [...,3,3], got {tuple(rotation.shape)}.")
     cosine = ((rotation.diagonal(dim1=-2, dim2=-1).sum(dim=-1) - 1.0) * 0.5).clamp(
         -1.0, 1.0
     )
@@ -178,48 +142,17 @@ def snap_camera_pose_delta_to_identity(
     """
 
     pose = torch.as_tensor(camera_pose_delta)
-    if pose.ndim < 3 or pose.shape[-2:] != (4, 4):
-        raise ValueError(
-            "camera_pose_delta must be [...,T,4,4], got "
-            f"{tuple(pose.shape)}."
-        )
     if not pose.is_floating_point():
         pose = pose.float()
-    if translation_tolerance_m < 0.0 or not math.isfinite(
-        translation_tolerance_m
-    ):
-        raise ValueError("translation_tolerance_m must be finite and non-negative.")
-    if rotation_tolerance_deg < 0.0 or not math.isfinite(rotation_tolerance_deg):
-        raise ValueError("rotation_tolerance_deg must be finite and non-negative.")
-    if bool(torch.any(~torch.isfinite(pose)).item()):
-        raise ValueError("camera_pose_delta contains non-finite values.")
-    valid = _validate_pose_valid(
+    valid = _prepare_pose_valid(
         pose_valid,
         tuple(pose.shape[:-2]),
         device=pose.device,
     )
     pose = _replicate_invalid_tail(pose, valid)
-
-    expected_last_row = torch.tensor(
-        [0.0, 0.0, 0.0, 1.0], dtype=pose.dtype, device=pose.device
-    )
-    if not torch.allclose(
-        pose[..., 3, :],
-        expected_last_row.expand_as(pose[..., 3, :]),
-        atol=1.0e-4,
-        rtol=0.0,
-    ):
-        raise ValueError("camera_pose_delta contains an invalid homogeneous last row.")
     identity = _identity_4x4(
         tuple(pose.shape[:-3]), dtype=pose.dtype, device=pose.device
     )
-    if not torch.allclose(
-        pose[..., 0, :, :], identity, atol=1.0e-4, rtol=0.0
-    ):
-        raise ValueError(
-            "camera_pose_delta[0] must be T_C0<-C0 identity; re-anchor the clip "
-            "before model input."
-        )
 
     translation_norm = torch.linalg.vector_norm(pose[..., :3, 3], dim=-1)
     angle = rotation_angle(pose[..., :3, :3])
@@ -246,9 +179,6 @@ def rotation_matrix_to_xyz_euler(rotation: torch.Tensor) -> torch.Tensor:
     conditioning applies it only to consecutive, small rotations; the singular
     fallback is nevertheless explicit so the data contract is deterministic.
     """
-
-    if rotation.shape[-2:] != (3, 3):
-        raise ValueError(f"Rotation must be [...,3,3], got {tuple(rotation.shape)}.")
     horizontal = torch.sqrt(
         rotation[..., 0, 0].square() + rotation[..., 1, 0].square()
     )
@@ -285,9 +215,6 @@ def so3_log_map(rotation: torch.Tensor) -> torch.Tensor:
 
 def se3_log_map(transform: torch.Tensor) -> torch.Tensor:
     """Return ``[..., 6]`` SE(3) twists ordered as translation then rotation."""
-
-    if transform.shape[-2:] != (4, 4):
-        raise ValueError(f"Transform must be [...,4,4], got {tuple(transform.shape)}.")
     rotation = transform[..., :3, :3]
     translation = transform[..., :3, 3]
     omega = so3_log_map(rotation)
@@ -336,27 +263,8 @@ def build_camera_pose_blocks(
     """
 
     pose = torch.as_tensor(camera_pose_delta)
-    if pose.ndim != 4 or pose.shape[-2:] != (4, 4):
-        raise ValueError(
-            "camera_pose_delta must be [B,T,4,4], got "
-            f"{tuple(pose.shape)}."
-        )
-    if num_latent_frames <= 0:
-        raise ValueError(f"num_latent_frames must be positive, got {num_latent_frames}.")
     representation = str(representation).strip().lower()
-    if representation not in CAMERA_POSE_REPRESENTATIONS:
-        raise ValueError(
-            "Unsupported camera pose representation "
-            f"{representation!r}; expected one of {sorted(CAMERA_POSE_REPRESENTATIONS)}."
-        )
-    expected_rgb_frames = (num_latent_frames - 1) * CAMERA_POSE_BLOCK_SIZE + 1
-    if pose.shape[1] != expected_rgb_frames:
-        raise ValueError(
-            "Camera/video temporal mismatch: "
-            f"got {pose.shape[1]} RGB poses, expected {expected_rgb_frames} for "
-            f"{num_latent_frames} latent frames."
-        )
-    valid = _validate_pose_valid(
+    valid = _prepare_pose_valid(
         pose_valid,
         tuple(pose.shape[:-2]),
         device=pose.device,
@@ -393,10 +301,6 @@ def build_camera_pose_blocks(
         (pose.shape[0], 1, CAMERA_POSE_BLOCK_DIM)
     )
     blocks = torch.cat((first_block, future_blocks), dim=1)
-    if blocks.shape[-1] != CAMERA_POSE_BLOCK_DIM:
-        raise RuntimeError(
-            f"Internal camera pose block dimension mismatch: {blocks.shape[-1]}."
-        )
     return blocks, stationary
 
 
@@ -406,13 +310,6 @@ def camera_pose_fixed_normalization(
     local_rotation_scale_rad: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return zero-centered fixed scaling for a 4x6D delta block."""
-
-    scales = (
-        local_translation_scale_m,
-        local_rotation_scale_rad,
-    )
-    if any(not math.isfinite(value) or value <= 0.0 for value in scales):
-        raise ValueError(f"Camera pose normalization scales must be positive: {scales}.")
     mean = torch.zeros(CAMERA_POSE_BLOCK_DIM, dtype=torch.float32)
     std = torch.ones(CAMERA_POSE_BLOCK_DIM, dtype=torch.float32)
     for offset in range(0, CAMERA_POSE_BLOCK_DIM, CAMERA_POSE_DELTA_DIM):

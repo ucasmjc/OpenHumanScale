@@ -40,12 +40,6 @@ OPTIMIZER_STATE = "optimizer_state.safetensors"
 OPTIMIZER_PARAM_GROUPS = "optimizer_param_groups.json"
 SCHEDULER_STATE = "scheduler_state.json"
 
-if "LEROBOT_HOME" in os.environ:
-    raise ValueError(
-        f"You have a 'LEROBOT_HOME' environment variable set to '{os.getenv('LEROBOT_HOME')}'.\n"
-        "'LEROBOT_HOME' is deprecated, please use 'HF_LEROBOT_HOME' instead."
-    )
-
 # cache dir
 default_cache_path = Path(HF_HOME) / "lerobot"
 HF_LEROBOT_HOME = Path(os.getenv("HF_LEROBOT_HOME", default_cache_path)).expanduser()

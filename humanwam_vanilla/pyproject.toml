@@ -39,14 +39,14 @@ dependencies = [
 ]
 
 [tool.setuptools]
-license-files = ["Apache-2.0.txt", "licenses/*.txt"]
+license-files = ["Apache-2.0.txt"]
 
 [tool.setuptools.package-dir]
 "" = "src"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["humanwam*", "openhumanscale*"]
+include = ["humanwam*"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

@@ -5,12 +5,10 @@ import json
 import math
 import os
 from collections import OrderedDict
-from numbers import Integral
 from pathlib import Path
 from typing import Optional
 import time
 import numpy as np
-import traceback
 import torch
 import torchvision.transforms.functional as transforms_F
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,9 +18,7 @@ from omegaconf import DictConfig, OmegaConf
 from hydra.utils import instantiate
 from .base_lerobot_dataset import (
     BaseLerobotDataset,
-    NORM_STATS_WEIGHTINGS,
-    _resolve_temporal_resampling_by_root,
-)
+    _resolve_temporal_resampling_by_root)
 from .lerobot.datasets.video_utils import decode_video_frames
 from .temporal_resampling import (
     TEMPORAL_RESAMPLING_PROVENANCE_VERSION,
@@ -31,8 +27,7 @@ from .temporal_resampling import (
     is_identity_temporal_resampling,
     temporal_resampling_provenance,
     temporal_resampling_spec_digest,
-    validate_temporal_resampling_spec,
-)
+    parse_temporal_resampling_spec)
 from .utils.normalizer import save_dataset_stats_to_json, load_dataset_stats_from_json
 from .text_embedding_pack import TextEmbeddingPack
 from .object_conditioned_instruction import ObjectConditionedInstructionSampler
@@ -62,55 +57,17 @@ def _load_frame_exclusion_manifest(manifest, dataset_dirs):
     if manifest is None or str(manifest).strip().lower() in {"", "none", "null"}:
         return None, {}
     path = Path(str(manifest)).expanduser().resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"Frame exclusion manifest does not exist: {path}")
     value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict) or int(value.get("version", -1)) != 1:
-        raise ValueError(f"Unsupported frame exclusion manifest at {path}")
-    if value.get("complete") is not True:
-        raise ValueError(f"Frame exclusion manifest {path} is not complete")
-    declared = value.get("content_sha256")
-    payload = {k: v for k, v in value.items() if k not in {"created_at_utc", "content_sha256"}}
-    observed = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    if declared != observed:
-        raise ValueError(f"Frame exclusion manifest content hash mismatch at {path}")
     roots = value.get("roots")
-    if not isinstance(roots, dict):
-        raise ValueError(f"Frame exclusion manifest {path} needs object field `roots`")
-    configured = {str(Path(root).expanduser().resolve()) for root in dataset_dirs}
     resolved = {str(Path(root).expanduser().resolve()): entry for root, entry in roots.items()}
-    unknown = sorted(set(resolved) - configured)
-    if unknown:
-        raise ValueError(f"Frame exclusion manifest contains roots absent from dataset_dirs: {unknown[:5]}")
-    missing = sorted(configured - set(resolved))
-    if missing:
-        raise ValueError(f"Frame exclusion manifest is missing configured roots: {missing[:5]}")
     normalized = {}
     for root, entry in resolved.items():
-        if not isinstance(entry, dict) or not isinstance(entry.get("episodes", {}), dict):
-            raise ValueError(f"Invalid frame exclusion root entry for {root}")
         episodes = {}
         for episode, record in entry.get("episodes", {}).items():
-            if not isinstance(record, dict) or not isinstance(record.get("duplicate_frame_indices", []), list):
-                raise ValueError(f"Invalid episode entry {root}/{episode}")
             indices = sorted({int(i) for i in record["duplicate_frame_indices"]})
-            if any(i < 0 for i in indices):
-                raise ValueError(f"Negative excluded frame index in {root}/{episode}")
             episodes[int(episode)] = frozenset(indices)
         normalized[root] = episodes
     return path, normalized
-
-
-def _validate_task_weighted_retry_contract(
-    task_weighted_sampling, *, skip_padding_as_possible: bool
-) -> None:
-    if task_weighted_sampling is not None and bool(skip_padding_as_possible):
-        raise ValueError(
-            "task_weighted_sampling requires skip_padding_as_possible=false; "
-            "random padding retries would change the requested anchor/task dose"
-        )
 
 
 def cover_resize_center_crop(video, size):
@@ -147,24 +104,11 @@ def _build_action_tokenizer_source_routes(dataset_dirs, rules):
         return None
     if OmegaConf.is_config(rules):
         rules = OmegaConf.to_container(rules, resolve=True)
-    if not isinstance(rules, list) or not rules:
-        raise ValueError(
-            "action_tokenizer_source_rules must be a non-empty list when provided"
-        )
 
     parsed = []
     for position, rule in enumerate(rules):
-        if not isinstance(rule, dict):
-            raise TypeError(
-                f"action_tokenizer_source_rules[{position}] must be a mapping"
-            )
         match = str(rule.get("match", "")).strip()
         source = str(rule.get("source", "")).strip()
-        if not match or not source:
-            raise ValueError(
-                "Each action tokenizer source rule needs non-empty `match` and "
-                f"`source`; rule {position}={rule!r}"
-            )
         parsed.append((match, source))
 
     routes = {}
@@ -176,21 +120,9 @@ def _build_action_tokenizer_source_routes(dataset_dirs, rules):
             for position, (match, source) in enumerate(parsed)
             if match in root
         ]
-        if len(matches) != 1:
-            raise ValueError(
-                "Each dataset root must match exactly one action tokenizer source "
-                f"rule; root={root!r}, matches={matches}"
-            )
         position, source = matches[0]
         match_counts[position] += 1
         routes[str(Path(root).expanduser().resolve())] = source
-
-    unused = [position for position, count in enumerate(match_counts) if count == 0]
-    if unused:
-        raise ValueError(
-            "action_tokenizer_source_rules contain unused rules at positions "
-            f"{unused}"
-        )
     return routes
 
 
@@ -198,8 +130,6 @@ def _manifest_provenance(path: Optional[str | Path]) -> dict:
     if path is None or str(path).strip().lower() in {"", "none", "null"}:
         return {"enabled": False, "sha256": None}
     resolved = Path(str(path)).expanduser().resolve()
-    if not resolved.is_file():
-        raise FileNotFoundError(resolved)
     return {
         "enabled": True,
         "sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
@@ -254,11 +184,6 @@ def _expanded_temporal_resampling_provenance(
     specs: list,
 ) -> dict:
     """Canonical, rule-expression-independent per-root temporal provenance."""
-    if len(dataset_dirs) != len(specs):
-        raise ValueError(
-            "temporal resampling provenance requires one spec per dataset root, "
-            f"got {len(specs)} specs for {len(dataset_dirs)} roots"
-        )
     roots = []
     for dataset_root, spec in zip(dataset_dirs, specs, strict=True):
         roots.append(
@@ -282,187 +207,13 @@ def _expanded_temporal_resampling_provenance(
     return {**payload, "sha256": hashlib.sha256(encoded).hexdigest()}
 
 
-def _validate_norm_stats_provenance(
-    stats: dict,
-    *,
-    stats_path: str | Path,
-    dataset_dirs: list[str],
-    episode_exclusion_manifest: Optional[str | Path],
-    episode_segment_manifest: Optional[str | Path] = None,
-    shape_meta: dict,
-    action_state_transforms: Optional[list],
-    norm_stats_weighting: str,
-    expected_episodes: int,
-    expected_frames: int,
-    temporal_resampling_provenance: Optional[dict] = None,
-    sampling_temporal_resampling_provenance: Optional[dict] = None,
-    expected_corpus_provenance: Optional[dict] = None,
-    expected_environment_sampling: Optional[dict] = None,
-    action_time_offset_frames: int = 0,
-    hand_action_dim: Optional[int] = None,
-) -> None:
-    """Fail closed when pinned statistics do not describe the configured corpus."""
-
-    metadata = stats.get("metadata") or {}
-    corpus = metadata.get("corpus") or {}
-    resolved_roots = [
-        str(Path(path).expanduser().resolve()) for path in dataset_dirs
-    ]
-    expected_roots_sha = hashlib.sha256(
-        "\n".join(resolved_roots).encode("utf-8")
-    ).hexdigest()
-    observed_manifest = metadata.get("episode_exclusion_manifest") or {}
-    expected_manifest = _manifest_provenance(episode_exclusion_manifest)
-    observed_segment_manifest = metadata.get("episode_segment_manifest") or {}
-    expected_segment_manifest = _manifest_provenance(episode_segment_manifest)
-    mismatches = []
-    if metadata.get("hand_action_dim") != hand_action_dim:
-        mismatches.append("hand_action_dim")
-    if int(stats.get("num_episodes", -1)) != int(expected_episodes):
-        mismatches.append("num_episodes")
-    if int(stats.get("num_transition", -1)) != int(expected_frames):
-        mismatches.append("num_transition")
-    if corpus.get("dataset_dirs_sha256") != expected_roots_sha:
-        mismatches.append("dataset_dirs_sha256")
-    if corpus.get("dataset_dirs") != resolved_roots:
-        mismatches.append("dataset_dirs")
-    if bool(observed_manifest.get("enabled")) != expected_manifest["enabled"]:
-        mismatches.append("episode_exclusion_manifest.enabled")
-    if observed_manifest.get("sha256") != expected_manifest["sha256"]:
-        mismatches.append("episode_exclusion_manifest.sha256")
-    if bool(observed_segment_manifest.get("enabled")) != expected_segment_manifest["enabled"]:
-        mismatches.append("episode_segment_manifest.enabled")
-    if observed_segment_manifest.get("sha256") != expected_segment_manifest["sha256"]:
-        mismatches.append("episode_segment_manifest.sha256")
-    if _plain_provenance_value(metadata.get("resolved_shape_meta")) != shape_meta:
-        mismatches.append("resolved_shape_meta")
-    if (
-        _plain_provenance_value(metadata.get("action_state_transforms"))
-        != action_state_transforms
-    ):
-        mismatches.append("action_state_transforms")
-    if str(metadata.get("norm_stats_weighting", "")) != norm_stats_weighting:
-        mismatches.append("norm_stats_weighting")
-    observed_action_offset = int(
-        (metadata.get("settings") or {}).get("action_time_offset_frames", 0)
-    )
-    if observed_action_offset != int(action_time_offset_frames):
-        mismatches.append("settings.action_time_offset_frames")
-    if (
-        expected_environment_sampling is not None
-        and expected_environment_sampling.get("active_axis") is not None
-    ):
-        observed_environment_sampling = _plain_provenance_value(
-            metadata.get("environment_sampling") or {}
-        )
-        for key, expected in expected_environment_sampling.items():
-            if observed_environment_sampling.get(key) != expected:
-                mismatches.append(f"environment_sampling.{key}")
-    if temporal_resampling_provenance is not None:
-        observed_temporal = metadata.get("temporal_resampling") or {}
-        if (
-            observed_temporal.get("version")
-            != temporal_resampling_provenance["version"]
-        ):
-            mismatches.append("temporal_resampling.version")
-        if (
-            _plain_provenance_value(observed_temporal.get("roots"))
-            != temporal_resampling_provenance["roots"]
-        ):
-            mismatches.append("temporal_resampling.roots")
-        if (
-            observed_temporal.get("sha256")
-            != temporal_resampling_provenance["sha256"]
-        ):
-            mismatches.append("temporal_resampling.sha256")
-    if sampling_temporal_resampling_provenance is not None:
-        observed_sampling_temporal = (
-            metadata.get("sampling_temporal_resampling") or {}
-        )
-        if (
-            observed_sampling_temporal.get("version")
-            != sampling_temporal_resampling_provenance["version"]
-        ):
-            mismatches.append("sampling_temporal_resampling.version")
-        if (
-            _plain_provenance_value(observed_sampling_temporal.get("roots"))
-            != sampling_temporal_resampling_provenance["roots"]
-        ):
-            mismatches.append("sampling_temporal_resampling.roots")
-        if (
-            observed_sampling_temporal.get("sha256")
-            != sampling_temporal_resampling_provenance["sha256"]
-        ):
-            mismatches.append("sampling_temporal_resampling.sha256")
-    if expected_corpus_provenance is not None:
-        for key in (
-            "num_roots",
-            "total_episodes",
-            "total_native_frames",
-            "total_virtual_frames",
-            "total_sampling_frames",
-        ):
-            if corpus.get(key) != expected_corpus_provenance[key]:
-                mismatches.append(f"corpus.{key}")
-        root_keys = (
-            "dataset_root",
-            "episodes",
-            "native_frames",
-            "virtual_frames",
-            "sampling_frames",
-            "temporal_resampling",
-            "sampling_temporal_resampling",
-        )
-        observed_roots = _plain_provenance_value(corpus.get("roots"))
-        if isinstance(observed_roots, list) and all(
-            isinstance(item, dict) for item in observed_roots
-        ):
-            observed_roots = [
-                {key: item.get(key) for key in root_keys}
-                for item in observed_roots
-            ]
-        if observed_roots != expected_corpus_provenance["roots"]:
-            mismatches.append("corpus.roots")
-    if mismatches:
-        raise ValueError(
-            f"Pinned normalization stats {Path(stats_path).expanduser().resolve()} "
-            f"do not match the configured corpus: {sorted(mismatches)}"
-        )
-
-
 def _as_int64_numpy(value, *, name: str) -> np.ndarray:
     """Return a one-dimensional CPU int64 view/copy for compact index metadata."""
 
     if isinstance(value, torch.Tensor):
         value = value.detach().cpu().numpy()
     array = np.asarray(value)
-    if array.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional, got shape {array.shape}")
-    if array.dtype.kind not in {"i", "u"}:
-        raise TypeError(f"{name} must contain integers, got dtype {array.dtype}")
-    if array.dtype.kind == "u" and array.size and int(array.max()) > np.iinfo(np.int64).max:
-        raise OverflowError(f"{name} contains a value outside signed int64")
     return array.astype(np.int64, copy=False)
-
-
-def _validate_contiguous_episode_index(
-    starts: np.ndarray,
-    ends: np.ndarray,
-    *,
-    name: str,
-) -> None:
-    if starts.shape != ends.shape:
-        raise ValueError(
-            f"{name} from/to shape mismatch: {starts.shape} != {ends.shape}"
-        )
-    if starts.size == 0:
-        raise ValueError(f"{name} contains no episodes")
-    if int(starts[0]) != 0:
-        raise ValueError(f"{name} must start at frame 0, got {int(starts[0])}")
-    if np.any(ends <= starts):
-        raise ValueError(f"{name} contains a non-positive episode length")
-    if starts.size > 1 and not np.array_equal(starts[1:], ends[:-1]):
-        raise ValueError(f"{name} episode ranges are not contiguous")
 
 
 def _live_norm_stats_corpus_provenance(
@@ -474,15 +225,6 @@ def _live_norm_stats_corpus_provenance(
     """Build the selected live per-root corpus contract used by sampled stats."""
 
     children = list(base_dataset.multi_dataset._datasets)
-    if len(children) != len(dataset_dirs):
-        raise ValueError(
-            "Normalization provenance requires one child per dataset root, got "
-            f"roots={len(dataset_dirs)} children={len(children)}"
-        )
-    if sampling_specs is not None and len(sampling_specs) != len(children):
-        raise ValueError(
-            "Normalization provenance requires one sampling spec per dataset root"
-        )
 
     roots = []
     total_episodes = 0
@@ -493,16 +235,12 @@ def _live_norm_stats_corpus_provenance(
         zip(dataset_dirs, children, strict=True)
     ):
         root = str(Path(dataset_root).expanduser().resolve())
-        data_spec = validate_temporal_resampling_spec(child.temporal_resampling)
+        data_spec = parse_temporal_resampling_spec(child.temporal_resampling)
         if getattr(child, "_episode_segments_enabled", False):
             native_index = child.episode_data_index
         else:
             native_index = getattr(child, "native_episode_data_index", None)
         if native_index is None:
-            if not data_spec.is_identity:
-                raise ValueError(
-                    f"Missing native_episode_data_index for resampled root {root}"
-                )
             native_index = child.episode_data_index
         starts = _as_int64_numpy(
             native_index["from"], name=f"{root} native_episode_data_index.from"
@@ -510,14 +248,6 @@ def _live_norm_stats_corpus_provenance(
         ends = _as_int64_numpy(
             native_index["to"], name=f"{root} native_episode_data_index.to"
         )
-        _validate_contiguous_episode_index(
-            starts, ends, name=f"{root} native_episode_data_index"
-        )
-        if starts.size != int(child.num_episodes):
-            raise ValueError(
-                f"Episode count mismatch for {root}: child={int(child.num_episodes)} "
-                f"index={starts.size}"
-            )
         native_lengths = ends - starts
         temporal = temporal_resampling_provenance(
             data_spec, native_episode_lengths=native_lengths
@@ -530,11 +260,6 @@ def _live_norm_stats_corpus_provenance(
         )
         temporal_corpus = temporal["corpus"]
         sampling_corpus = sampling_temporal["corpus"]
-        if int(temporal_corpus["virtual_frames"]) != int(child.num_frames):
-            raise ValueError(
-                f"Virtual frame count mismatch for {root}: provenance="
-                f"{temporal_corpus['virtual_frames']} child={int(child.num_frames)}"
-            )
         record = {
             "dataset_root": root,
             "episodes": int(starts.size),
@@ -571,18 +296,9 @@ def _sampling_lengths(
     if spec.is_identity:
         return native_lengths
     scaled = native_lengths.astype(np.float64) * spec.factor
-    int64_stop = float(1 << 63)
-    if not np.all(np.isfinite(scaled)) or np.any(scaled >= int64_stop):
-        raise OverflowError(
-            f"sampling temporal lengths overflow signed int64 for root {root}"
-        )
     # Python round(), used by virtual_episode_length, and np.rint both use
     # round-to-nearest/ties-to-even on float64 values.
     result = np.rint(scaled).astype(np.int64)
-    if np.any(result <= 0):
-        raise ValueError(
-            f"sampling temporal resampling produced a non-positive length for {root}"
-        )
     return result
 
 
@@ -603,23 +319,13 @@ class _FullHorizonIndex:
         ends = _as_int64_numpy(
             episode_ends, name="full_horizon episode_data_index.to"
         )
-        _validate_contiguous_episode_index(
-            starts, ends, name="full_horizon episode_data_index"
-        )
         min_query_delta = int(min_query_delta)
         max_query_delta = int(max_query_delta)
-        if min_query_delta > max_query_delta:
-            raise ValueError(
-                "full-horizon query delta range is inverted: "
-                f"{min_query_delta} > {max_query_delta}"
-            )
 
         valid_starts = starts + max(0, -min_query_delta)
         valid_ends = ends - max(0, max_query_delta)
         valid_counts = np.maximum(valid_ends - valid_starts, 0)
         eligible = valid_counts > 0
-        if not np.any(eligible):
-            raise ValueError("full-horizon filtering removes every training anchor")
 
         self.anchor_starts = valid_starts[eligible]
         self.anchor_ends = valid_ends[eligible]
@@ -637,13 +343,7 @@ class _FullHorizonIndex:
         return self.num_frames
 
     def map_index(self, index: int) -> int:
-        if isinstance(index, bool) or not isinstance(index, Integral):
-            raise TypeError(f"full-horizon index must be an integer, got {index!r}")
         logical_index = int(index)
-        if logical_index < 0 or logical_index >= self.num_frames:
-            raise IndexError(
-                f"full-horizon index {logical_index} outside [0, {self.num_frames})"
-            )
         episode_pos = int(
             np.searchsorted(self.cumulative_ends, logical_index, side="right")
         )
@@ -653,10 +353,6 @@ class _FullHorizonIndex:
         native_index = int(self.anchor_starts[episode_pos]) + (
             logical_index - logical_episode_start
         )
-        if native_index + self.min_query_delta < int(self.episode_starts[episode_pos]):
-            raise RuntimeError("full-horizon mapping crossed an episode start")
-        if native_index + self.max_query_delta >= int(self.episode_ends[episode_pos]):
-            raise RuntimeError("full-horizon mapping crossed an episode boundary")
         return native_index
 
 
@@ -679,12 +375,6 @@ class _SamplingOnlyTemporalIndex:
         specs: tuple[TemporalResamplingSpec, ...],
     ):
         children = list(base_dataset.multi_dataset._datasets)
-        if len(children) != len(dataset_dirs) or len(specs) != len(dataset_dirs):
-            raise ValueError(
-                "sampling temporal resampling requires one child/spec per dataset "
-                f"root, got roots={len(dataset_dirs)} children={len(children)} "
-                f"specs={len(specs)}"
-            )
 
         self.specs = specs
         self.enabled = any(not spec.is_identity for spec in specs)
@@ -703,8 +393,6 @@ class _SamplingOnlyTemporalIndex:
         # configured chunk. Fill the single global cumulative array root by root so
         # temporary memory remains bounded by the largest chunk, not the corpus.
         total_episodes = sum(int(child.num_episodes) for child in children)
-        if total_episodes <= 0:
-            raise ValueError("sampling temporal resampling requires at least one episode")
         sampling_episode_ends = (
             np.empty(total_episodes, dtype=np.int64) if self.enabled else None
         )
@@ -720,25 +408,9 @@ class _SamplingOnlyTemporalIndex:
                 child.episode_data_index["to"],
                 name=f"{root} episode_data_index.to",
             )
-            _validate_contiguous_episode_index(
-                starts,
-                ends,
-                name=f"{root} episode_data_index",
-            )
-            if starts.size != int(child.num_episodes):
-                raise ValueError(
-                    f"Episode count mismatch for {root}: child.num_episodes="
-                    f"{int(child.num_episodes)}, index={starts.size}"
-                )
 
             native_lengths = ends - starts
             root_native = int(ends[-1])
-            child_frames = int(child.num_frames)
-            if root_native != child_frames:
-                raise ValueError(
-                    f"Native frame count mismatch for {root}: episode index="
-                    f"{root_native}, child.num_frames={child_frames}"
-                )
 
             if self.enabled:
                 logical_lengths = _sampling_lengths(
@@ -747,15 +419,7 @@ class _SamplingOnlyTemporalIndex:
                     root=root,
                 )
                 root_sampling = int(sum(map(int, logical_lengths)))
-                if sampling_count > np.iinfo(np.int64).max - root_sampling:
-                    raise OverflowError(
-                        "sampling temporal corpus exceeds signed int64 frame capacity"
-                    )
                 local_ends = np.cumsum(logical_lengths, dtype=np.int64)
-                if int(local_ends[-1]) != root_sampling:
-                    raise OverflowError(
-                        f"sampling temporal cumulative length overflow for {root}"
-                    )
                 next_episode_count = episode_count + starts.size
                 sampling_episode_ends[episode_count:next_episode_count] = (
                     local_ends + sampling_count
@@ -782,16 +446,6 @@ class _SamplingOnlyTemporalIndex:
                 }
             )
 
-        if episode_count != total_episodes:
-            raise RuntimeError(
-                f"Sampling episode count mismatch: {episode_count} != {total_episodes}"
-            )
-        if native_count != len(base_dataset):
-            raise ValueError(
-                "Sampling native frame count does not match BaseLerobotDataset: "
-                f"roots={native_count}, base={len(base_dataset)}"
-            )
-
         global_starts = _as_int64_numpy(
             base_dataset.episode_data_index["from"],
             name="combined episode_data_index.from",
@@ -800,15 +454,6 @@ class _SamplingOnlyTemporalIndex:
             base_dataset.episode_data_index["to"],
             name="combined episode_data_index.to",
         )
-        _validate_contiguous_episode_index(
-            global_starts,
-            global_ends,
-            name="combined episode_data_index",
-        )
-        if global_starts.size != total_episodes or int(global_ends[-1]) != native_count:
-            raise ValueError(
-                "Combined episode index does not match the concatenated native roots"
-            )
 
         self.num_episodes = total_episodes
         self.native_num_frames = native_count
@@ -834,16 +479,7 @@ class _SamplingOnlyTemporalIndex:
     def map_index(self, index: int) -> int:
         if not self.enabled:
             return index
-        if isinstance(index, bool) or not isinstance(index, Integral):
-            raise TypeError(
-                f"sampling temporal index must be an integer, got {index!r}"
-            )
         logical_index = int(index)
-        if logical_index < 0 or logical_index >= self.num_frames:
-            raise IndexError(
-                f"sampling temporal index {logical_index} outside "
-                f"[0, {self.num_frames})"
-            )
 
         episode_pos = int(
             np.searchsorted(
@@ -887,8 +523,6 @@ class _SamplingOnlyTemporalIndex:
                 float(native_length - 1),
             )
             native_local = math.floor(coordinate + 0.5)
-        else:  # pragma: no cover - spec validation makes this unreachable.
-            raise AssertionError(spec.mapping)
 
         native_local = min(max(int(native_local), 0), native_length - 1)
         return native_start + native_local
@@ -997,8 +631,6 @@ class _DiskVideoFrameCache:
                 while not self._is_valid_cache():
                     time.sleep(2.0)
                     waited += 2.0
-                    if waited > 3600:
-                        raise RuntimeError(f"[video-cache] timed out waiting for build: {self.dir}")
 
         logger.info(
             f"[video-cache] opening cache {self.dir} "
@@ -1059,37 +691,12 @@ class _DiskVideoFrameCache:
             ts_offset = inner_dataset.meta.get_video_timestamp_offset(ep_idx, cam)
             timestamps = [ts_offset + i / self.fps for i in range(length)]
             path = inner_dataset.root / inner_dataset.meta.get_video_file_path(ep_idx, cam)
-            try:
-                frames = decode_video_frames(
-                    path,
-                    timestamps,
-                    self.tolerance_s,
-                    inner_dataset.video_backend,
-                )
-            except Exception as error:
-                # The resize-baked disk cache is also an offline, one-time build.
-                # Match MergedFrameCache's recovery for RoboTwin AV1 clips that
-                # PyAV rejects only under concurrent in-process decoding.
-                from .merged_video_cache import (
-                    _decode_video_frames_sequential_ffmpeg,
-                    _is_pyav_invalid_data_error,
-                )
-
-                if not _is_pyav_invalid_data_error(error):
-                    raise
-                logger.warning(
-                    "[video-cache] PyAV rejected %s episode=%s camera=%s; "
-                    "retrying once through sequential ffmpeg",
-                    path,
-                    ep_idx,
-                    cam,
-                )
-                frames = _decode_video_frames_sequential_ffmpeg(
-                    path,
-                    length=length,
-                    fps=self.fps,
-                    timestamp_offset=ts_offset,
-                )
+            frames = decode_video_frames(
+                path,
+                timestamps,
+                self.tolerance_s,
+                inner_dataset.video_backend,
+            )
             if self.target_hw is not None and (frames.shape[-2], frames.shape[-1]) != (self.H, self.W):
                 # Bake the processed-resolution downsize in once (float, antialiased),
                 # matching the per-step torchvision Resize that this replaces.
@@ -1161,8 +768,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         text_embedding_fallback_cache_dirs=None,
         text_prompt_template: Optional[str] = DEFAULT_PROMPT,
         text_embedding_pack_dir=None,
-        text_embedding_pack_verify_payload: bool = False,
-        text_embedding_pack_verify_shards: bool = False,
         text_context_cache_size: int = 0,
         context_len=128,
         pretrained_norm_stats=None,
@@ -1175,7 +780,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         content_cache_dir: Optional[str] = None,
         content_cache_manifest: Optional[str] = None,
         content_cache_max_bytes: int = 0,
-        content_cache_verify_on_hit: bool = False,
         action_video_freq_ratio: int = 1,
         decode_video_sampled_frames: bool = False,
         skip_padding_as_possible: bool = False,
@@ -1201,31 +805,19 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         episode_segment_manifest=None, # optional v1 per-root logical sub-episode/caption manifest.
         mask_bad_segment_action_loss: bool = False,
         task_weighted_sampling=None, # optional exact-root per-task replacement sampling; null preserves historical order.
-        validate_norm_stats_provenance: bool = False,
         temporal_resampling=None, # optional exact-root/rule-routed virtual timeline policy
         sampling_temporal_resampling=None, # optional slow-shaped anchor population over identity/native windows
-        action_tokenizer_source_rules=None, # optional fail-closed root -> ActionDiT I/O adapter routing
+        action_tokenizer_source_rules=None, # optional root -> ActionDiT I/O adapter routing
         camera_intrinsics_warp=None, # optional per-episode RGB warp to a shared virtual K
         eef_anchor_overlay=None, # optional text-free canonical EEF axes on RGB frame 0 only
         emit_camera_pose_delta: bool = False, # emit T_C0<-Ci aligned to sampled RGB frames
         camera_pose_delta_source: str = "trajectory", # trajectory metadata or an explicit fixed-camera identity route
         action_time_offset_frames: int = 0, # native-frame offset for action queries; EgoStandard uses +1
         video_timestamp_tolerance_s: float = 1e-4,
-        strict_data_loading: bool = False,
         require_full_horizon: bool = False, # expose only anchors whose state/action/video windows need no padding
     ):
         norm_stats_weighting = str(norm_stats_weighting).lower()
-        if norm_stats_weighting not in NORM_STATS_WEIGHTINGS:
-            raise ValueError(
-                f"norm_stats_weighting must be one of {NORM_STATS_WEIGHTINGS}, "
-                f"got {norm_stats_weighting!r}"
-            )
-        self.strict_data_loading = bool(strict_data_loading)
         self.mask_bad_segment_action_loss = bool(mask_bad_segment_action_loss)
-        if self.mask_bad_segment_action_loss and (
-            episode_segment_manifest is None or not require_full_horizon
-        ):
-            raise ValueError("BAD action masking requires a segment manifest and full horizons")
         self.norm_stats_weighting = norm_stats_weighting
         self.text_prompt_template = text_prompt_template
         self.action_tokenizer_source_routes = _build_action_tokenizer_source_routes(
@@ -1233,42 +825,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             action_tokenizer_source_rules,
         )
         resolved_shape_meta = OmegaConf.to_container(shape_meta, resolve=True)
-        # BaseLerobotDataset enriches this mapping in place with implementation-only
-        # `lerobot_key` fields.  Preserve the user-facing config exactly as it was
-        # recorded by the normalization-statistics producer for provenance checks.
-        provenance_shape_meta = copy.deepcopy(resolved_shape_meta)
-        processor_config = (
-            OmegaConf.to_container(processor, resolve=True)
-            if isinstance(processor, DictConfig)
-            else None
-        )
-        action_state_transforms = (
-            processor_config.get("action_state_transforms")
-            if isinstance(processor_config, dict)
-            else (
-                [
-                    {
-                        "_target_": f"{type(transform).__module__}.{type(transform).__qualname__}",
-                        **{
-                            name: _plain_provenance_value(value)
-                            for name, value in vars(transform).items()
-                            if name
-                            in {
-                                "num_arms",
-                                "mode",
-                                "reference",
-                                "rotation_type",
-                                "category_keys",
-                            }
-                        },
-                    }
-                    for transform in processor.action_state_transforms
-                ]
-                if processor is not None
-                and getattr(processor, "action_state_transforms", None) is not None
-                else None
-            )
-        )
         resolved_temporal_resampling = (
             OmegaConf.to_container(temporal_resampling, resolve=True)
             if OmegaConf.is_config(temporal_resampling)
@@ -1279,11 +835,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             if OmegaConf.is_config(sampling_temporal_resampling)
             else sampling_temporal_resampling
         )
-        if episode_segment_manifest is not None and resolved_sampling_temporal_resampling is not None:
-            raise ValueError(
-                "episode_segment_manifest cannot be combined with "
-                "sampling_temporal_resampling"
-            )
         sampling_specs = None
         sampling_provenance = None
         if resolved_sampling_temporal_resampling is not None:
@@ -1292,30 +843,13 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 resolved_sampling_temporal_resampling,
             )
             sampling_specs = tuple(
-                validate_temporal_resampling_spec(spec)
+                parse_temporal_resampling_spec(spec)
                 for spec in aligned_sampling_specs
             )
             sampling_provenance = _expanded_temporal_resampling_provenance(
                 list(dataset_dirs),
                 list(sampling_specs),
             )
-
-            # Sampling-only slowdown is deliberately orthogonal to the returned
-            # trajectory timeline. Reject a double-resampled configuration before
-            # constructing the expensive multi-root dataset.
-            if resolved_temporal_resampling is not None:
-                aligned_data_specs = _resolve_temporal_resampling_by_root(
-                    list(dataset_dirs),
-                    resolved_temporal_resampling,
-                )
-                if any(
-                    not is_identity_temporal_resampling(spec)
-                    for spec in aligned_data_specs
-                ):
-                    raise ValueError(
-                        "sampling_temporal_resampling requires an identity/native "
-                        "temporal_resampling timeline"
-                    )
         self.lerobot_dataset = BaseLerobotDataset(
             dataset_dirs=dataset_dirs,
             shape_meta=resolved_shape_meta,
@@ -1329,44 +863,21 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             content_cache_dir=content_cache_dir,
             content_cache_manifest=content_cache_manifest,
             content_cache_max_bytes=content_cache_max_bytes,
-            content_cache_verify_on_hit=content_cache_verify_on_hit,
             episode_subset=episode_subset,
             episode_exclusion_manifest=episode_exclusion_manifest,
             episode_segment_manifest=episode_segment_manifest,
             temporal_resampling=resolved_temporal_resampling,
         action_time_offset_frames=action_time_offset_frames,
             video_timestamp_tolerance_s=video_timestamp_tolerance_s,
-            strict_data_loading=strict_data_loading,
         )
         self.object_conditioned_instruction_sampling = str(
             object_conditioned_instruction_sampling
         ).strip().lower()
-        if self.object_conditioned_instruction_sampling not in {
-            "per_draw",
-            "random_access",
-        }:
-            raise ValueError(
-                "object_conditioned_instruction_sampling must be one of "
-                "{'per_draw', 'random_access'}, got "
-                f"{object_conditioned_instruction_sampling!r}"
-            )
         self.object_conditioned_instruction_seed = int(
             object_conditioned_instruction_seed
         )
         self._instruction_epoch = 0
         self._instruction_draw_ordinal = 0
-        instruction_sources = sum(
-            (
-                override_instruction is not None,
-                object_conditioned_instruction_manifest is not None,
-                bool(sample_unique_episode_prompts),
-            )
-        )
-        if instruction_sources > 1:
-            raise ValueError(
-                "override_instruction, object_conditioned_instruction_manifest, "
-                "and sample_unique_episode_prompts are mutually exclusive"
-            )
         self.object_conditioned_instruction_sampler = None
         if object_conditioned_instruction_manifest is not None:
             self.object_conditioned_instruction_sampler = (
@@ -1413,26 +924,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         self._frame_exclusion_enabled = bool(frame_exclusions)
         self._frame_valid_indices = None
         if self._frame_exclusion_enabled:
-            if resolved_temporal_resampling is not None and any(
-                not is_identity_temporal_resampling(spec)
-                for spec in _resolve_temporal_resampling_by_root(
-                    list(dataset_dirs), resolved_temporal_resampling
-                )
-            ):
-                raise ValueError(
-                    "frame_exclusion_manifest currently requires an identity/native "
-                    "temporal_resampling timeline"
-                )
-            if sampling_specs is not None:
-                raise ValueError(
-                    "frame_exclusion_manifest cannot be combined with "
-                    "sampling_temporal_resampling"
-                )
-            if task_weighted_sampling is not None:
-                raise ValueError(
-                    "frame_exclusion_manifest cannot be combined with "
-                    "task_weighted_sampling"
-                )
             global_excluded = []
             offset = 0
             for root, child in zip(dataset_dirs, self.lerobot_dataset.multi_dataset._datasets, strict=True):
@@ -1440,12 +931,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 for episode_pos, source_episode in enumerate(child.episodes or range(child.num_episodes)):
                     length = int(child.episode_data_index["to"][episode_pos] - child.episode_data_index["from"][episode_pos])
                     excluded = frame_exclusions[root_key].get(int(source_episode), frozenset())
-                    invalid = sorted(i for i in excluded if i >= length)
-                    if invalid:
-                        raise ValueError(
-                            f"Frame exclusion manifest references absent frames under {root} "
-                            f"episode {source_episode}: {invalid[:5]}"
-                        )
                     global_excluded.extend(offset + int(i) for i in excluded)
                     offset += length
             excluded_set = set(global_excluded)
@@ -1453,8 +938,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 [i for i in range(len(self.lerobot_dataset)) if i not in excluded_set],
                 dtype=np.int64,
             )
-            if self._frame_valid_indices.size == 0:
-                raise ValueError("frame_exclusion_manifest removes every training anchor")
             logger.info(
                 "Using frame exclusion manifest %s: excluded=%s/%s native anchors",
                 self.frame_exclusion_manifest,
@@ -1471,11 +954,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 incompatible.append("sampling_temporal_resampling")
             if self.lerobot_dataset.environment_sampling is not None:
                 incompatible.append("environment_sampling")
-            if incompatible:
-                raise ValueError(
-                    "require_full_horizon is not compatible with "
-                    f"{incompatible}"
-                )
             max_observation_delta = (int(num_frames) - 1) * int(global_sample_stride)
             max_action_delta = (
                 (int(num_frames) - 2) * int(global_sample_stride)
@@ -1505,26 +983,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             if OmegaConf.is_config(task_weighted_sampling)
             else task_weighted_sampling
         )
-        _validate_task_weighted_retry_contract(
-            resolved_task_weighted_sampling,
-            skip_padding_as_possible=skip_padding_as_possible,
-        )
-        if resolved_task_weighted_sampling is not None:
-            if self.require_full_horizon:
-                raise ValueError(
-                    "require_full_horizon cannot be combined with "
-                    "task_weighted_sampling"
-                )
-            if self.environment_sampling is not None:
-                raise ValueError(
-                    "task_weighted_sampling cannot be combined with "
-                    "environment_sampling"
-                )
-            if resolved_sampling_temporal_resampling is not None:
-                raise ValueError(
-                    "task_weighted_sampling cannot be combined with "
-                    "sampling_temporal_resampling"
-                )
         children = self.lerobot_dataset.multi_dataset._datasets
         self.task_weighted_sampling = build_task_weighted_sampling_contract(
             dataset_dirs=list(dataset_dirs),
@@ -1572,11 +1030,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 if OmegaConf.is_config(camera_intrinsics_warp)
                 else copy.deepcopy(camera_intrinsics_warp)
             )
-            if not isinstance(warp_config, dict):
-                raise TypeError(
-                    "camera_intrinsics_warp must be a mapping, got "
-                    f"{type(warp_config).__name__}"
-                )
             self.camera_intrinsics_warp = CameraIntrinsicsWarp(
                 dataset_dirs=list(dataset_dirs),
                 selected_episode_indices=selected_episode_indices or [],
@@ -1590,11 +1043,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 if OmegaConf.is_config(eef_anchor_overlay)
                 else copy.deepcopy(eef_anchor_overlay)
             )
-            if not isinstance(overlay_config, dict):
-                raise TypeError(
-                    "eef_anchor_overlay must be a mapping, got "
-                    f"{type(overlay_config).__name__}"
-                )
             self.eef_anchor_overlay = EefAnchorOverlay(
                 dataset_dirs=list(dataset_dirs),
                 selected_episode_indices=selected_episode_indices or [],
@@ -1608,21 +1056,11 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             frame_ends = []
             total_frames = 0
             children = self.lerobot_dataset.multi_dataset._datasets
-            if len(children) != len(dataset_dirs):
-                raise ValueError(
-                    "Action tokenizer routing requires one child dataset per root, "
-                    f"got children={len(children)} roots={len(dataset_dirs)}"
-                )
             for dataset_root, child in zip(dataset_dirs, children, strict=True):
                 resolved_root = str(Path(str(dataset_root)).expanduser().resolve())
                 sources.append(self.action_tokenizer_source_routes[resolved_root])
                 total_frames += int(child.num_frames)
                 frame_ends.append(total_frames)
-            if total_frames != len(self.lerobot_dataset):
-                raise ValueError(
-                    "Action tokenizer routing frame spans disagree with the dataset: "
-                    f"spans={total_frames} dataset={len(self.lerobot_dataset)}"
-                )
             self._action_tokenizer_source_by_dataset_index = tuple(sources)
             self._action_tokenizer_source_frame_ends = tuple(frame_ends)
 
@@ -1665,23 +1103,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 if aligned_temporal_specs is not None
                 else [None] * len(dataset_dirs),
             )
-        effective_sampling_provenance = (
-            sampling_provenance
-            if sampling_provenance is not None
-            else temporal_provenance
-        )
-        effective_sampling_specs = (
-            sampling_specs
-            if sampling_specs is not None
-            else tuple(
-                validate_temporal_resampling_spec(spec)
-                for spec in (
-                    aligned_temporal_specs
-                    if aligned_temporal_specs is not None
-                    else [None] * len(dataset_dirs)
-                )
-            )
-        )
         if temporal_resampling_enabled:
             incompatible = []
             if preload_video_cache:
@@ -1690,11 +1111,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 incompatible.append("merged_video_cache_dir")
             if goal_supervision:
                 incompatible.append("goal_supervision")
-            if incompatible:
-                raise ValueError(
-                    "Runtime temporal_resampling is not compatible with native-index "
-                    f"features {incompatible}; disable them or use identity resampling"
-                )
 
         if episode_segment_manifest is not None:
             incompatible = []
@@ -1702,17 +1118,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 incompatible.append("merged_video_cache_dir")
             if goal_supervision:
                 incompatible.append("goal_supervision")
-            if incompatible:
-                raise ValueError(
-                    "episode_segment_manifest is not compatible with "
-                    f"{incompatible}; these features assume physical episode boundaries"
-                )
-
-        if sampling_specs is not None and temporal_resampling_enabled:
-            raise ValueError(
-                "sampling_temporal_resampling requires the constructed Base/Multi "
-                "dataset to remain identity/native"
-            )
         self.sampling_temporal_resampling = (
             [canonicalize_temporal_resampling_spec(spec) for spec in sampling_specs]
             if sampling_specs is not None
@@ -1746,8 +1151,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
 
         self._video_caches = []
         if preload_video_cache:
-            if not video_cache_dir:
-                raise ValueError("preload_video_cache=True requires video_cache_dir to be set.")
             # Bake the raw->processed downsize into the cache. All cameras share
             # the processed shape ([C, H, W]); store frames at that (H, W) so the
             # per-step resize from raw resolution is skipped. Requires uniform
@@ -1766,11 +1169,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         self.action_video_freq_ratio = action_video_freq_ratio
         self.control_representation = control_representation
         self.libero_gripper_open_width = libero_gripper_open_width
-
-        assert (num_frames - 1) % self.action_video_freq_ratio == 0, \
-            f"num_frames-1 must be divisible by action_video_freq_ratio, got {num_frames - 1} and {self.action_video_freq_ratio}"
-        assert ((num_frames - 1) // self.action_video_freq_ratio) % 4 == 0, \
-            f"video frames must be divisible by 4 for tokenization, got {(num_frames - 1) // self.action_video_freq_ratio}"
         self.video_sample_indices = list(range(0, num_frames, self.action_video_freq_ratio))
 
         self.camera_key = camera_key
@@ -1778,8 +1176,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
 
         self.video_size = video_size
         self.context_len = int(context_len)
-        if self.context_len <= 0:
-            raise ValueError(f"context_len must be positive, got {context_len}")
         self.text_embedding_cache_dir = text_embedding_cache_dir
         self._text_embedding_cache_dir_ready = False
         if text_embedding_fallback_cache_dirs is None:
@@ -1798,18 +1194,11 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             TextEmbeddingPack(
                 self.text_embedding_pack_dir,
                 context_len=self.context_len,
-                verify_payload_sha256=text_embedding_pack_verify_payload,
-                verify_shard_sha256=text_embedding_pack_verify_shards,
             )
             if self.text_embedding_pack_dir is not None
             else None
         )
         self.text_context_cache_size = int(text_context_cache_size)
-        if self.text_context_cache_size < 0:
-            raise ValueError(
-                "text_context_cache_size must be >= 0, "
-                f"got {self.text_context_cache_size}"
-            )
         self._reset_text_context_cache_state()
         self.skip_padding_as_possible = skip_padding_as_possible
         self.max_padding_retry = max_padding_retry
@@ -1818,26 +1207,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         self.goal_supervision = bool(goal_supervision)
         self.emit_camera_pose_delta = bool(emit_camera_pose_delta)
         self.camera_pose_delta_source = str(camera_pose_delta_source).strip().lower()
-        if self.camera_pose_delta_source not in {"trajectory", "static_identity"}:
-            raise ValueError(
-                "camera_pose_delta_source must be 'trajectory' or "
-                f"'static_identity', got {camera_pose_delta_source!r}."
-            )
-        if not self.emit_camera_pose_delta and self.camera_pose_delta_source != "trajectory":
-            raise ValueError(
-                "camera_pose_delta_source=static_identity requires "
-                "emit_camera_pose_delta=true."
-            )
-        if self.emit_camera_pose_delta and self.concat_multi_camera is not None:
-            raise ValueError(
-                "Camera pose conditioning currently supports the single-camera "
-                "pixel layout only (concat_multi_camera must be null)."
-            )
-        if self.emit_camera_pose_delta and self.goal_supervision:
-            raise ValueError(
-                "Camera pose conditioning is not defined for terminal-goal latent "
-                "replacement; disable goal_supervision."
-            )
         if self.camera_intrinsics_warp is not None:
             incompatible = []
             if self.concat_multi_camera is not None:
@@ -1846,44 +1215,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 incompatible.append("goal_supervision")
             if eef_anchor_overlay is not None:
                 incompatible.append("eef_anchor_overlay")
-            if incompatible:
-                raise ValueError(
-                    "camera_intrinsics_warp currently supports a single decoded RGB "
-                    f"stream and is incompatible with {incompatible}"
-                )
-        if self.concat_multi_camera in {
-            "robotwin_latent_tshape",
-            "robotwin_multiview_tokens",
-            "robotwin_packed_multiview",
-        }:
-            camera_meta = list(resolved_shape_meta["images"])
-            camera_keys = [str(meta["key"]) for meta in camera_meta]
-            expected_camera_keys = [
-                "cam_high",
-                "cam_left_wrist",
-                "cam_right_wrist",
-            ]
-            if camera_keys != expected_camera_keys:
-                raise ValueError(
-                    "Separate-view RoboTwin layouts require camera order "
-                    f"{expected_camera_keys}, got {camera_keys}."
-                )
-            processed_shapes = {tuple(meta["shape"]) for meta in camera_meta}
-            if len(processed_shapes) != 1:
-                raise ValueError(
-                    "The processor must emit a common per-camera tensor shape before "
-                    "model-side per-view resize, got "
-                    f"{sorted(processed_shapes)}."
-                )
-            if merged_video_cache_dir and self.concat_multi_camera != "robotwin_latent_tshape":
-                raise ValueError(
-                    "Separate-view cache only implemented for robotwin_latent_tshape"
-                )
-            if self.goal_supervision:
-                raise ValueError(
-                    "Separate-view RoboTwin layouts do not support "
-                    "`goal_supervision`; dense-video post-training is required."
-                )
 
         self.resize_transform = ResizeSmallestSideAspectPreserving(
             args={"img_w": self.video_size[1], "img_h": self.video_size[0]},
@@ -1898,16 +1229,9 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             if isinstance(processor, DictConfig):
                 processor = instantiate(processor)
             if self.eef_anchor_overlay is not None:
-                if not hasattr(processor, "emit_transformed_anchor_state"):
-                    raise TypeError(
-                        "eef_anchor_overlay requires a processor that can emit the "
-                        "unnormalized transformed anchor EEF state"
-                    )
                 processor.emit_transformed_anchor_state = True
                 processor.anchor_state_key = self.eef_anchor_overlay.state_key
             if not pretrained_norm_stats:
-                if not is_training_set:
-                    raise ValueError("pretrained_norm_stats must be provided for validation/test sets since we don't want to calculate stats on them.")
                 if PartialState().is_main_process:
                     logger.info("Calculating dataset stats for normalization...")
                     dataset_stats = self.lerobot_dataset.get_dataset_stats(
@@ -1928,45 +1252,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                     dataset_stats = obj_list[0]
             else:
                 dataset_stats = load_dataset_stats_from_json(pretrained_norm_stats)
-                if validate_norm_stats_provenance:
-                    live_corpus_provenance = (
-                        _live_norm_stats_corpus_provenance(
-                            dataset_dirs=list(dataset_dirs),
-                            base_dataset=self.lerobot_dataset,
-                            sampling_specs=effective_sampling_specs,
-                        )
-                        if strict_temporal_provenance
-                        else None
-                    )
-                    _validate_norm_stats_provenance(
-                        dataset_stats,
-                        stats_path=pretrained_norm_stats,
-                        dataset_dirs=list(dataset_dirs),
-                        episode_exclusion_manifest=episode_exclusion_manifest,
-                        episode_segment_manifest=episode_segment_manifest,
-                        shape_meta=provenance_shape_meta,
-                        hand_action_dim=(processor_config or {}).get("hand_action_dim"),
-                        action_state_transforms=action_state_transforms,
-                        norm_stats_weighting=self.norm_stats_weighting,
-                        expected_episodes=self.lerobot_dataset.multi_dataset.num_episodes,
-                        # num_transition follows the effective training draw
-                        # population. Sampling-only views can be longer than the
-                        # returned native Base/Multi timeline.
-                        expected_frames=len(self),
-                        temporal_resampling_provenance=temporal_provenance,
-                        sampling_temporal_resampling_provenance=(
-                            effective_sampling_provenance
-                            if strict_temporal_provenance
-                            else None
-                        ),
-                        expected_corpus_provenance=live_corpus_provenance,
-                        expected_environment_sampling=(
-                            _environment_sampling_provenance(
-                                self.environment_sampling
-                            )
-                        ),
-                        action_time_offset_frames=action_time_offset_frames,
-                    )
                 logger.info(f"Using dataset stats: {pretrained_norm_stats}")
                 if PartialState().is_main_process:
                     work_dir = misc.get_work_dir()
@@ -1987,21 +1272,11 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         self._merged_buf = None
         self._video_latent_cache = None
         if merged_video_cache_dir:
-            if not Path(merged_video_cache_dir).is_dir():
-                raise FileNotFoundError(
-                    f"Requested merged video cache directory does not exist: {merged_video_cache_dir}. "
-                    "Check the container mount/path; source-video fallback is disabled."
-                )
-            if preload_video_cache:
-                raise ValueError("merged_video_cache_dir and preload_video_cache are mutually exclusive.")
-            if self.lerobot_dataset.processor is None:
-                raise ValueError("merged_video_cache_dir requires an image processor")
             from .merged_video_cache import (
                 BFloat16MergedFrameCache,
                 MergedFrameCache,
                 TShapeMp4FrameCache,
-                image_transforms_signature,
-            )
+                image_transforms_signature)
             merged_dtype = str(merged_video_cache_dtype).strip().lower()
             cache_types = {
                 "float32": MergedFrameCache,
@@ -2010,11 +1285,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 "bf16": BFloat16MergedFrameCache,
                 "tshape_mp4": TShapeMp4FrameCache,
             }
-            if merged_dtype not in cache_types:
-                raise ValueError(
-                    "merged_video_cache_dtype must be float32, bfloat16 or tshape_mp4, got "
-                    f"{merged_video_cache_dtype!r}"
-                )
             cache_type = cache_types[merged_dtype]
             selected_camera_keys = [
                 str(meta["lerobot_key"]) for meta in self.lerobot_dataset.image_meta
@@ -2051,20 +1321,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                     camera_keys=selected_camera_keys,
                     transform_signature=transform_signature,
                 )
-                cache.validate_training_storage()
-                if not cache.is_complete():
-                    missing = cache.missing_episodes()
-                    if os.environ.get("FASTWAM_MERGED_ALLOW_INCOMPLETE", "0") == "1":
-                        logger.warning(
-                            f"[merged-cache] INCOMPLETE ({len(missing)}/{len(cache.episodes)} missing) "
-                            f"under {cache.dir}, but FASTWAM_MERGED_ALLOW_INCOMPLETE=1 -- test mode only."
-                        )
-                    else:
-                        raise RuntimeError(
-                            f"merged video cache incomplete: {len(missing)}/{len(cache.episodes)} episodes "
-                            f"missing under {cache.dir}. Build it first via scripts/build_merged_video_cache.py"
-                        )
-
                 def _merged_query(query_timestamps, ep_idx, _cache=cache):
                     # Stash only the frames the model consumes. LeRobot still requests
                     # the full 33-frame action-aligned window, but RoboTwin later
@@ -2106,71 +1362,8 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 f"{total_episodes} episodes under {merged_video_cache_dir} "
                 f"(out {self.video_size[0]}x{self.video_size[1]})"
             )
-        if video_latent_cache_dir:
-            if self.camera_intrinsics_warp is not None:
-                raise ValueError(
-                    "camera_intrinsics_warp is incompatible with video_latent_cache_dir: "
-                    "the RGB pixels no longer exist at the dataset boundary"
-                )
-            if self.eef_anchor_overlay is not None:
-                raise ValueError(
-                    "eef_anchor_overlay is incompatible with video_latent_cache_dir: "
-                    "the first-frame pixels no longer exist at the dataset boundary"
-                )
-            if self._merged_cache is None and episode_segment_manifest is None:
-                raise ValueError(
-                    "video_latent_cache_dir requires either merged_video_cache_dir "
-                    "or an immutable episode_segment_manifest so sample-index "
-                    "provenance remains fail-closed."
-                )
-            if self.goal_supervision:
-                raise ValueError(
-                    "video_latent_cache_dir is incompatible with goal_supervision."
-                )
-            if self._sampling_temporal_index is not None:
-                raise ValueError(
-                    "video_latent_cache_dir does not support a virtual sampling timeline."
-                )
-            from .video_latent_cache import VideoLatentCache
-
-            segment_manifest_sha256 = None
-            if episode_segment_manifest is not None:
-                segment_manifest_path = Path(episode_segment_manifest).expanduser().resolve()
-                segment_manifest_sha256 = hashlib.sha256(
-                    segment_manifest_path.read_bytes()
-                ).hexdigest()
-            self._video_latent_cache = VideoLatentCache(
-                video_latent_cache_dir,
-                expected_samples=len(self),
-                expected_video_frames=len(self.video_sample_indices),
-                expected_segment_manifest_sha256=segment_manifest_sha256,
-            )
-            if self._merged_cache is None:
-                # A sample-indexed latent is the final video input. Preserve the
-                # action/proprio metadata query, but replace MP4 decoding with tiny
-                # image placeholders that the processor explicitly bypasses.
-                for inner in self.lerobot_dataset.multi_dataset._datasets:
-                    def _latent_query(query_timestamps, ep_idx):
-                        del ep_idx
-                        length = len(next(iter(query_timestamps.values())))
-                        dummy = torch.zeros(length, 3, 1, 1)
-                        result = {key: dummy for key in query_timestamps}
-                        result["_fastwam_merged_video_cache"] = True
-                        return result
-
-                    inner._query_videos = _latent_query  # type: ignore[assignment]
-            logger.info(
-                "[video-latent-cache] active: samples=%d latent_shape=%s root=%s",
-                len(self._video_latent_cache),
-                self._video_latent_cache.latent_shape,
-                video_latent_cache_dir,
-            )
 
         if decode_video_sampled_frames or os.environ.get('FASTWAM_SPARSE_VIDEO_DECODE') == '1':
-            if preload_video_cache or merged_video_cache_dir or video_latent_cache_dir:
-                raise ValueError('Sparse video decode cannot be combined with predecoded caches')
-            if not require_full_horizon or goal_supervision:
-                raise ValueError('Sparse video decode requires full-horizon training without goal supervision')
             from .sparse_video_decode import install_sparse_video_decode
             install_sparse_video_decode(self)
             logger.info('[video-decode] decoding %d of %d observation frames; action/state unchanged',
@@ -2188,8 +1381,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
     def _sampling_index_to_native(self, idx):
         if self._frame_valid_indices is not None:
             idx = int(idx)
-            if idx < 0 or idx >= len(self._frame_valid_indices):
-                raise IndexError(f"sample index out of range: {idx}")
             idx = int(self._frame_valid_indices[idx])
         if self._full_horizon_index is not None:
             idx = self._full_horizon_index.map_index(idx)
@@ -2212,19 +1403,9 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             "robotwin_multiview_tokens",
             "robotwin_packed_multiview",
         }:
-            if num_cameras != 3:
-                raise ValueError(
-                    "A separate-view RoboTwin layout requires exactly "
-                    f"3 cameras ordered as head/left-wrist/right-wrist, got {num_cameras}"
-                )
             video = self.normalize_transform(multicam)  # [V, T, C, H, W]
             return video.permute(0, 2, 1, 3, 4).contiguous()  # [V, C, T, H, W]
         if self.concat_multi_camera == "robotwin_ego_aligned_tshape":
-            if num_cameras != 3:
-                raise ValueError(
-                    "`concat_multi_camera='robotwin_ego_aligned_tshape'` requires "
-                    f"exactly 3 cameras, got {num_cameras}"
-                )
             # Pixel T-shape whose head keeps the Ego-aligned 256x448 contract and
             # whose wrists are half the head's height and width.  Geometrically
             # identical to `robotwin_multiview_tokens`, but composed into a single
@@ -2244,10 +1425,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             bottom = torch.cat([cam_left, cam_right], dim=-1)  # [T, C, 128, 448]
             video = torch.cat([cam_top, bottom], dim=-2)  # [T, C, 384, 448]
         elif self.concat_multi_camera == "robotwin":
-            if num_cameras != 3:
-                raise ValueError(
-                    f"`concat_multi_camera='robotwin'` requires exactly 3 cameras, got {num_cameras}"
-                )
             cam_top = transforms_F.resize(
                 multicam[0], size=[256, 320],
                 interpolation=transforms_F.InterpolationMode.BILINEAR, antialias=True,
@@ -2263,11 +1440,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             bottom = torch.cat([cam_left, cam_right], dim=-1)  # [T, C, 128, 320]
             video = torch.cat([cam_top, bottom], dim=-2)  # [T, C, 384, 320]
         elif self.concat_multi_camera == "robotwin_tshape_528x448":
-            if num_cameras != 3:
-                raise ValueError(
-                    "`concat_multi_camera='robotwin_tshape_528x448'` requires "
-                    f"exactly 3 cameras, got {num_cameras}"
-                )
             # Large pixel T-shape requested for the Clean-50 ablation:
             # 352x448 head over two 176x224 wrist views -> 528x448 canvas.
             # The per-camera processor emits a common 240x320 tensor; resize
@@ -2292,14 +1464,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 video = torch.cat([multicam[i] for i in range(num_cameras)], dim=-1)
             elif self.concat_multi_camera == "vertical":
                 video = torch.cat([multicam[i] for i in range(num_cameras)], dim=-2)
-            else:
-                raise ValueError(
-                f"Invalid concat_multi_camera: {self.concat_multi_camera}. "
-                "Expected one of: horizontal, vertical, robotwin, "
-                "robotwin_tshape_528x448, "
-                "robotwin_ego_aligned_tshape, robotwin_latent_tshape, "
-                "robotwin_multiview_tokens, robotwin_packed_multiview."
-            )
         else:
             video = multicam.squeeze(0)  # [T, C, H, W]
 
@@ -2331,7 +1495,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                     ep_len = cache.ep_lengths[int(ep_id)]
                     return cache.lookup_frame(int(ep_id), ep_len - 1)  # [C, H, W] in [-1, 1]
                 remaining -= inner.num_frames
-            raise IndexError(f"sample index {sample_idx} is outside the merged cache corpus")
         terminal_idx = int(to_idx[ep]) - 1
 
         term = self.lerobot_dataset[terminal_idx]
@@ -2360,16 +1523,11 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         if sources is None:
             return None
         index = int(sample_idx)
-        if index < 0:
-            raise IndexError(f"sample index must be non-negative, got {index}")
         for dataset_index, frame_end in enumerate(
             self._action_tokenizer_source_frame_ends
         ):
             if index < frame_end:
                 return sources[dataset_index]
-        raise IndexError(
-            f"sample index {index} is outside the action-tokenizer routing spans"
-        )
 
     # Wan2.2 causal VAE temporal downsample (frames1-4 -> 1 latent). Combined with the
     # dataset's own temporal subsampling it converts a trajectory-frame distance into
@@ -2435,39 +1593,25 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             # Pre-merged path: the query hook already selected video_sample_indices,
             # so the stashed buffer is [T_video, 3, Ho, Wo] in [-1, 1].
             merged_win = self._merged_buf
-            if merged_win is None:
-                raise RuntimeError("merged cache query hook did not populate the frame buffer")
-            if merged_win.shape[0] != len(self.video_sample_indices):
-                raise RuntimeError(
-                    f"merged cache returned {merged_win.shape[0]} frames, expected "
-                    f"{len(self.video_sample_indices)}"
-                )
             image_is_pad = image_is_pad[self.video_sample_indices]
             video = merged_win.permute(1, 0, 2, 3).contiguous()  # [C, T_video, Ho, Wo]
             if self.concat_multi_camera in {
                 "robotwin_latent_tshape", "robotwin_multiview_tokens", "robotwin_packed_multiview",
             } and not getattr(self._merged_cache, "PREMERGED_T", False):
                 c, t, packed_h, w = video.shape
-                if packed_h % 3:
-                    raise ValueError("Invalid packed three-view height")
                 video = video.reshape(c, t, 3, packed_h // 3, w).permute(2, 0, 1, 3, 4).contiguous()
         else:
             video = sample["pixel_values"]  # [T, C, H, W] or [num_cameras, T, C, H, W]
             sparse_indices = sample.get('_fastwam_video_sample_indices')
-            if sparse_indices is not None and tuple(sparse_indices) != tuple(self.video_sample_indices):
-                raise ValueError('Sparse video decoder selected different model frames')
             indices = slice(None) if sparse_indices is not None else self.video_sample_indices
             num_cameras = 1
             if video.ndim == 5:
                 video = video[:, indices, :, :, :] # [num_cameras, T_video, C, H, W]
                 num_cameras, T_video, C, H, W = video.shape
             else:
-                assert video.ndim == 4, f"Expected video to have shape [T, C, H, W], but got {video.shape}"
                 video = video[indices, :, :, :] # [T_video, C, H, W]
                 T_video, C, H, W = video.shape
             image_is_pad = image_is_pad[indices]
-            if T_video != len(self.video_sample_indices):
-                raise ValueError('Decoded video does not match model temporal shape')
 
             video = self._assemble_frames(
                 video.view(num_cameras, T_video, C, H, W)
@@ -2477,15 +1621,8 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         if self.camera_intrinsics_warp is not None or self.eef_anchor_overlay is not None:
             resolved_sample_idx = int(sample.get("idx", sample_idx))
             episode_key = self.lerobot_dataset._runtime_episode_key(resolved_sample_idx)
-            if episode_key is None:
-                raise RuntimeError(
-                    f"Could not locate dataset/episode for sample {resolved_sample_idx}"
-                )
 
         if self.camera_intrinsics_warp is not None:
-            if video is None:
-                raise RuntimeError("camera_intrinsics_warp requires decoded or merged RGB video")
-            assert episode_key is not None
             dataset_index, episode_index = episode_key
             video = self.camera_intrinsics_warp.apply(
                 video,
@@ -2494,15 +1631,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             )
 
         if self.eef_anchor_overlay is not None:
-            if video is None:
-                raise RuntimeError("eef_anchor_overlay requires decoded or merged RGB video")
             anchor_state = sample.get("_eef_anchor_state")
-            if anchor_state is None:
-                raise RuntimeError(
-                    "eef_anchor_overlay is enabled but the processor did not emit "
-                    "_eef_anchor_state"
-                )
-            assert episode_key is not None
             dataset_index, episode_index = episode_key
             self.eef_anchor_overlay.apply(
                 video,
@@ -2525,15 +1654,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         if video is not None:
             video_time_dim = 2 if video.ndim == 5 else 1
             num_video_frames = int(video.shape[video_time_dim])
-        if num_video_frames <= 1:
-            raise ValueError(
-                f"`video` must have at least 2 frames, got {num_video_frames}"
-            )
-        if action.shape[0] % (num_video_frames - 1) != 0:
-            raise ValueError(
-                "`action` horizon must be divisible by `video` transitions, got "
-                f"{action.shape[0]} and {num_video_frames - 1}"
-            )
 
         task = self._instruction_task_for_sample(sample, sample_idx)
         instruction = (
@@ -2551,12 +1671,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         camera_pose_valid = None
         if self.emit_camera_pose_delta:
             camera_pose_valid = ~torch.as_tensor(image_is_pad, dtype=torch.bool)
-            if tuple(camera_pose_valid.shape) != (num_video_frames,):
-                raise ValueError(
-                    "Camera-pose validity must align with sampled RGB frames: "
-                    f"got {tuple(camera_pose_valid.shape)}, expected "
-                    f"({num_video_frames},)."
-                )
             if self.camera_pose_delta_source == "static_identity":
                 # RoboTwin's stored head camera is fixed for the full trajectory.
                 # Emit the condition explicitly instead of fabricating an absolute
@@ -2566,18 +1680,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 )
             else:
                 camera_extrinsic = sample.get("cam_extrinsic")
-                if camera_extrinsic is None:
-                    raise RuntimeError(
-                        "emit_camera_pose_delta=true but this sample has no "
-                        "observation.cam_extrinsic trajectory."
-                    )
                 camera_extrinsic = torch.as_tensor(camera_extrinsic)
-                if tuple(camera_extrinsic.shape) != (self.num_frames, 7):
-                    raise ValueError(
-                        "Raw camera extrinsic window must align with trajectory frames: "
-                        f"got {tuple(camera_extrinsic.shape)}, expected "
-                        f"({self.num_frames}, 7)."
-                    )
                 sampled_camera = camera_extrinsic[self.video_sample_indices]
                 camera_pose_delta = camera_to_world_pose7_to_delta(
                     sampled_camera,
@@ -2620,11 +1723,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             source = self._action_tokenizer_source_for_sample_index(
                 resolved_sample_idx
             )
-            if source is None:
-                raise RuntimeError(
-                    "Action tokenizer source routing is enabled but no root spans "
-                    "were initialized."
-                )
             data["action_tokenizer_source"] = source
         for key in ("video_view_present", "video_view_loss_mask"):
             if key in sample:
@@ -2636,8 +1734,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         if sample.get("proprio_dim_is_pad") is not None:
             data["proprio_dim_is_pad"] = sample["proprio_dim_is_pad"]
         if getattr(self, "mask_bad_segment_action_loss", False):
-            if "logical_bad_reason" not in sample:
-                raise RuntimeError("Logical bad_reason was lost before action-loss masking")
             reason = sample["logical_bad_reason"]
             data["action_dim_valid"] = bad_segment_action_mask(
                 action, reason, data.get("action_dim_valid")
@@ -2664,11 +1760,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             episode_key = self.lerobot_dataset._runtime_episode_key(
                 resolved_sample_idx
             )
-            if episode_key is None:
-                raise RuntimeError(
-                    "Could not locate dataset/episode for object-conditioned "
-                    f"instruction sample {resolved_sample_idx}"
-                )
             dataset_index, episode_index = episode_key
             sampler = object_sampler if object_sampler is not None else episode_sampler
             draw_ordinal = int(getattr(self, "_instruction_draw_ordinal", 0))
@@ -2742,10 +1833,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
 
     def _get_cached_text_context(self, prompt: str):
         text_pack = getattr(self, "_text_embedding_pack", None)
-        if self.text_embedding_cache_dir is None and text_pack is None:
-            raise ValueError(
-                "Neither text_embedding_cache_dir nor text_embedding_pack_dir is set."
-            )
         self._ensure_text_context_cache_state()
         cache_capacity = int(getattr(self, "text_context_cache_size", 0) or 0)
         if cache_capacity > 0 and prompt in self._text_context_cache:
@@ -2785,31 +1872,9 @@ class RobotVideoDataset(torch.utils.data.Dataset):
                 (path for path in candidate_paths if os.path.exists(path)),
                 None,
             )
-            if cache_path is None:
-                raise FileNotFoundError(
-                    "Missing text embedding cache in all configured directories: "
-                    f"{candidate_paths}. "
-                    "Run scripts/precompute_text_embeds.py first."
-                )
             payload = torch.load(cache_path, map_location="cpu")
         context = payload["context"]
         context_mask = payload["mask"].bool()
-        if context.ndim != 2:
-            raise ValueError(
-                f"Cached `context` must be 2D [L, D], got shape {tuple(context.shape)} in {cache_path}"
-            )
-        if context_mask.ndim != 1:
-            raise ValueError(
-                f"Cached `mask` must be 1D [L], got shape {tuple(context_mask.shape)} in {cache_path}"
-            )
-        if context.shape[0] != self.context_len:
-            raise ValueError(
-                f"Cached context_len mismatch: expected {self.context_len}, got {context.shape[0]} in {cache_path}"
-            )
-        if context_mask.shape[0] != self.context_len:
-            raise ValueError(
-                f"Cached mask_len mismatch: expected {self.context_len}, got {context_mask.shape[0]} in {cache_path}"
-            )
 
         if cache_capacity > 0:
             cached_context = context.detach().contiguous()
@@ -2823,25 +1888,4 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         return context, context_mask
 
     def __getitem__(self, idx):
-        try:
-            data = self._get(idx)
-        except Exception as e:
-            # Object-conditioned captions are part of the supervision contract.
-            # A missing binding/cache entry must fail closed instead of silently
-            # replacing the requested frame with an unrelated random sample.
-            if (
-                getattr(self, 'strict_data_loading', False)
-                or os.environ.get('FASTWAM_10000H_VIDEO_CACHE')
-                or os.environ.get('FASTWAM_SOURCE_MIX_CLIPS')
-                or getattr(self, "_merged_cache", None) is not None
-                or self.task_weighted_sampling is not None
-                or getattr(self, "object_conditioned_instruction_sampler", None) is not None
-                or getattr(self, "episode_instruction_sampler", None) is not None
-            ):
-                raise
-            print(f"Error processing sample idx {idx}: {e}. Returning a random sample instead.")
-            # trace back
-            print(traceback.format_exc())
-            random_idx = np.random.randint(len(self))
-            data = self._get(random_idx)
-        return data
+        return self._get(idx)

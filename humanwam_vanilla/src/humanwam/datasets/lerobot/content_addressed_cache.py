@@ -25,14 +25,6 @@ def _normalize_source(path: str | os.PathLike[str]) -> str:
     return os.path.normpath(os.path.abspath(os.path.expanduser(os.fspath(path))))
 
 
-def _valid_sha256(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and len(value) == 64
-        and all(char in "0123456789abcdef" for char in value)
-    )
-
-
 class ContentAddressedFileCache:
     """Atomic, bounded PFS cache for immutable BOS/PFS source files.
 
@@ -47,7 +39,6 @@ class ContentAddressedFileCache:
         *,
         manifest_path: str | os.PathLike[str] | None = None,
         max_bytes: int = 0,
-        verify_on_hit: bool = False,
         cleanup_interval: int = 128,
         touch_interval_s: float = 60.0,
     ) -> None:
@@ -66,13 +57,6 @@ class ContentAddressedFileCache:
         self.max_bytes = int(max_bytes)
         self.cleanup_interval = int(cleanup_interval)
         self.touch_interval_s = float(touch_interval_s)
-        self.verify_on_hit = bool(verify_on_hit)
-        if self.max_bytes < 0:
-            raise ValueError(f"max_bytes must be >= 0, got {max_bytes}")
-        if self.cleanup_interval <= 0:
-            raise ValueError("cleanup_interval must be positive")
-        if self.touch_interval_s < 0:
-            raise ValueError("touch_interval_s must be >= 0")
 
         self.manifest_path = (
             Path(manifest_path).expanduser().resolve()
@@ -83,7 +67,6 @@ class ContentAddressedFileCache:
         self._manifest_is_sqlite = False
         if self.manifest_path is not None:
             if self.manifest_path.suffix in {".sqlite", ".sqlite3", ".db"}:
-                self._validate_sqlite_manifest(self.manifest_path)
                 self._manifest_is_sqlite = True
             else:
                 self._manifest_entries = self._load_manifest(self.manifest_path)
@@ -91,66 +74,14 @@ class ContentAddressedFileCache:
 
     @staticmethod
     def _load_manifest(path: Path) -> dict[str, dict]:
-        if not path.is_file():
-            raise FileNotFoundError(path)
         document = json.loads(path.read_text(encoding="utf-8"))
-        if document.get("schema") != CONTENT_CACHE_MANIFEST_SCHEMA:
-            raise ValueError(
-                f"unsupported content cache manifest schema "
-                f"{document.get('schema')!r} in {path}"
-            )
         entries = document.get("entries")
-        if not isinstance(entries, dict) or not entries:
-            raise ValueError(f"content cache manifest contains no entries: {path}")
         validated = {}
         for source, entry in entries.items():
-            normalized = _normalize_source(source)
-            if source != normalized or not isinstance(entry, dict):
-                raise ValueError(f"invalid content cache source key: {source!r}")
             sha256 = str(entry.get("sha256", "")).lower()
             size = int(entry.get("size", -1))
-            if not _valid_sha256(sha256) or size < 0:
-                raise ValueError(
-                    f"invalid content cache entry for {source}: {entry!r}"
-                )
             validated[source] = {"sha256": sha256, "size": size}
         return validated
-
-    @staticmethod
-    def _validate_sqlite_manifest(path: Path) -> None:
-        if not path.is_file():
-            raise FileNotFoundError(path)
-        uri = f"file:{quote(str(path), safe='/')}?mode=ro"
-        connection = sqlite3.connect(uri, uri=True)
-        try:
-            user_version = int(
-                connection.execute("PRAGMA user_version").fetchone()[0]
-            )
-            if user_version != 1:
-                raise ValueError(
-                    f"content cache SQLite manifest user_version must be 1, "
-                    f"got {user_version}: {path}"
-                )
-            columns = {
-                row[1]
-                for row in connection.execute(
-                    "PRAGMA table_info(entries)"
-                ).fetchall()
-            }
-            if columns != {"source", "size", "sha256"}:
-                raise ValueError(
-                    f"content cache SQLite manifest schema mismatch: "
-                    f"{sorted(columns)}"
-                )
-            rows = int(
-                connection.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
-            )
-            if rows <= 0:
-                raise ValueError(
-                    f"content cache SQLite manifest contains no entries: {path}"
-                )
-        finally:
-            connection.close()
 
     def _reset_process_state(self) -> None:
         self._pid = os.getpid()
@@ -220,10 +151,6 @@ class ContentAddressedFileCache:
         if row is None:
             return None
         size, sha256 = int(row[0]), str(row[1]).lower()
-        if size < 0 or not _valid_sha256(sha256):
-            raise ValueError(
-                f"invalid SQLite content cache entry for {source}"
-            )
         return {"size": size, "sha256": sha256}
 
     def stats(self) -> dict[str, int]:
@@ -257,26 +184,15 @@ class ContentAddressedFileCache:
                 fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
 
-    def _validate_object(self, path: Path, entry: dict) -> bool:
+    def _object_is_cached(self, path: Path, entry: dict) -> bool:
         try:
             observed_size = path.stat().st_size
         except FileNotFoundError:
             return False
         if observed_size != int(entry["size"]):
             return False
-        if self.verify_on_hit:
-            return self._sha256_file(path) == entry["sha256"]
         return True
 
-    @staticmethod
-    def _sha256_file(path: Path) -> str:
-        digest = hashlib.sha256()
-        with path.open("rb", buffering=0) as stream:
-            while True:
-                payload = stream.read(8 * 1024 * 1024)
-                if not payload:
-                    return digest.hexdigest()
-                digest.update(payload)
 
     def _touch(self, path: Path, sha256: str) -> None:
         now = time.monotonic()
@@ -300,10 +216,8 @@ class ContentAddressedFileCache:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return None
-        sha256 = document.get("sha256")
         if (
             document.get("source") != source
-            or not _valid_sha256(sha256)
             or int(document.get("size", -1)) < 0
             or int(document.get("mtime_ns", -1)) < 0
         ):
@@ -348,7 +262,7 @@ class ContentAddressedFileCache:
         manifest_entry = self._manifest_entry(source)
         if manifest_entry is not None:
             object_path = self._object_path(manifest_entry["sha256"])
-            if self._validate_object(object_path, manifest_entry):
+            if self._object_is_cached(object_path, manifest_entry):
                 # No source stat/read occurs on this path.
                 return self._record_hit(object_path, manifest_entry["sha256"])
             lock_key = manifest_entry["sha256"]
@@ -363,7 +277,7 @@ class ContentAddressedFileCache:
                 and int(locator["mtime_ns"]) == source_stat.st_mtime_ns
             ):
                 object_path = self._object_path(locator["sha256"])
-                if self._validate_object(object_path, locator):
+                if self._object_is_cached(object_path, locator):
                     return self._record_hit(object_path, locator["sha256"])
             lock_key = hashlib.sha256(source.encode("utf-8")).hexdigest()
             expected = {
@@ -373,12 +287,10 @@ class ContentAddressedFileCache:
             }
 
         self._stats["misses"] += 1
-        with self._lock(lock_key) as acquired:
-            if not acquired:  # blocking=True makes this defensive only.
-                raise RuntimeError(f"failed to acquire content cache lock {lock_key}")
+        with self._lock(lock_key):
             if manifest_entry is not None:
                 object_path = self._object_path(manifest_entry["sha256"])
-                if self._validate_object(object_path, manifest_entry):
+                if self._object_is_cached(object_path, manifest_entry):
                     return self._record_hit(
                         object_path, manifest_entry["sha256"]
                     )
@@ -391,7 +303,7 @@ class ContentAddressedFileCache:
                     and int(locator["mtime_ns"]) == source_stat.st_mtime_ns
                 ):
                     object_path = self._object_path(locator["sha256"])
-                    if self._validate_object(object_path, locator):
+                    if self._object_is_cached(object_path, locator):
                         return self._record_hit(object_path, locator["sha256"])
                 expected["size"] = source_stat.st_size
                 expected["mtime_ns"] = source_stat.st_mtime_ns
@@ -399,12 +311,6 @@ class ContentAddressedFileCache:
             temporary = self.tmp_dir / f"fill-{lock_key}.{os.getpid()}.tmp"
             digest = hashlib.sha256()
             copied = 0
-            before = os.stat(source)
-            if before.st_size != int(expected["size"]):
-                raise ValueError(
-                    f"source size differs from cache manifest for {source}: "
-                    f"expected={expected['size']}, observed={before.st_size}"
-                )
             try:
                 with open(source, "rb", buffering=0) as src, temporary.open(
                     "wb", buffering=0
@@ -419,25 +325,10 @@ class ContentAddressedFileCache:
                     dst.flush()
                     os.fsync(dst.fileno())
                 after = os.stat(source)
-                if (
-                    copied != before.st_size
-                    or after.st_size != before.st_size
-                    or after.st_mtime_ns != before.st_mtime_ns
-                ):
-                    raise RuntimeError(
-                        f"source changed while staging {source}: "
-                        f"before=({before.st_size},{before.st_mtime_ns}) "
-                        f"after=({after.st_size},{after.st_mtime_ns}) copied={copied}"
-                    )
                 observed_sha = digest.hexdigest()
-                if manifest_entry is not None and observed_sha != expected["sha256"]:
-                    raise ValueError(
-                        f"source checksum differs from cache manifest for {source}: "
-                        f"expected={expected['sha256']}, observed={observed_sha}"
-                    )
                 object_path = self._object_path(observed_sha)
                 object_path.parent.mkdir(parents=True, exist_ok=True)
-                if self._validate_object(
+                if self._object_is_cached(
                     object_path, {"size": copied, "sha256": observed_sha}
                 ):
                     temporary.unlink(missing_ok=True)

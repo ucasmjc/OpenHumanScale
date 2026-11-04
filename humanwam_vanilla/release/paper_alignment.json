@@ -8,7 +8,6 @@
   "main_result": {
     "source_run": "rtw-e50-p40-w0-s10k-a2-p24-b64x8-1028-r1",
     "step": 21000,
-    "checkpoint_sha256": "470e8914cf87c98c94b0e157c6de603dd17267239dac92e1aadacd885b1081cf",
     "instruction_type": "unseen",
     "scores": [
       {
@@ -40,25 +39,19 @@
     "posttrain_schedule_steps": 24000,
     "augmentation": "A2"
   },
-  "config_sha256": "152956a70de7e0a4a8b4c0cd74f13399726141a262dfa299ad69e4736a439b93",
-  "normalizer_sha256": "5a6cf85fc88b584a70266fbe5a83f11713203786c154ac9e3ec2a1bfebfe3381",
   "evidence_status": "Recorded manuscript evaluation provenance; checkpoint bytes and simulator parity not independently verified by this export",
   "sources": [
     {
-      "paper_relative_path": "tabs/benchmark_results/sources/robotwin_ours_20261101.json",
-      "sha256": "83e1be44099e2effaf312b175ff559debe92ed5e77ed5916f37859ee5272cdb6"
+      "paper_relative_path": "tabs/benchmark_results/sources/robotwin_ours_20261101.json"
     },
     {
-      "paper_relative_path": "tabs/model_robotwin_results.tex",
-      "sha256": "5ab345e3caf2e71da352d24b51157218dd0df331514407ce36a1c4cd37472e39"
+      "paper_relative_path": "tabs/model_robotwin_results.tex"
     },
     {
-      "paper_relative_path": "tabs/model_attention_ablation.tex",
-      "sha256": "6e52ee50adb4cdcb4deb0da723f31aef62d0e19a5bd1b3047d9f256047ae6f69"
+      "paper_relative_path": "tabs/model_attention_ablation.tex"
     },
     {
-      "paper_relative_path": "tabs/model_action_init_ablation.tex",
-      "sha256": "2bc0e2534186ac3d1ff80ba0e0c7675ad97f29e2e8dbf2cbf5171a64019abdc5"
+      "paper_relative_path": "tabs/model_action_init_ablation.tex"
     }
   ],
   "known_difference": "The provisional 100kh recipe / post12k budget is not the lineage of the current evaluated checkpoint.",

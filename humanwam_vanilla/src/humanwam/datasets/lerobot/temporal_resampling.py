@@ -29,9 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from dataclasses import dataclass
-from numbers import Integral, Real
 from types import MappingProxyType
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
@@ -111,21 +109,15 @@ SpecLike = TemporalResamplingSpec | Mapping[str, Any] | None
 ArrayLike = np.ndarray | torch.Tensor
 
 
-def _validate_nonnegative_integer(value: Any, *, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, Integral):
-        raise TypeError(f"{name} must be a non-negative integer, got {value!r}")
+def _parse_integer(value: Any, *, name: str) -> int:
     result = int(value)
-    if result < 0:
-        raise ValueError(f"{name} must be non-negative, got {result}")
     return result
 
 
-def validate_temporal_resampling_spec(spec: SpecLike) -> TemporalResamplingSpec:
-    """Validate and normalize a temporal-resampling spec.
+def parse_temporal_resampling_spec(spec: SpecLike) -> TemporalResamplingSpec:
+    """Parse a temporal-resampling spec.
 
-    ``None`` is the explicit no-op default and canonicalizes to identity.  Unknown
-    keys and ambiguous aliases are rejected so configuration/provenance drift fails
-    closed rather than silently changing a dataset timeline.
+    ``None`` is the explicit no-op default and canonicalizes to identity.
     """
 
     if spec is None:
@@ -143,57 +135,17 @@ def validate_temporal_resampling_spec(spec: SpecLike) -> TemporalResamplingSpec:
         }
     elif isinstance(spec, Mapping):
         raw = spec
-    else:
-        raise TypeError(
-            "temporal resampling spec must be a mapping, "
-            f"TemporalResamplingSpec, or None; got {type(spec).__name__}"
-        )
-
-    allowed = {"version", "mapping", "factor"}
-    unknown = set(raw) - allowed
-    if unknown:
-        raise ValueError(
-            "unknown temporal resampling spec keys: " + ", ".join(sorted(unknown))
-        )
 
     version = raw.get("version", TEMPORAL_RESAMPLING_SPEC_VERSION)
-    if isinstance(version, bool) or not isinstance(version, Integral):
-        raise TypeError(f"temporal resampling version must be an integer, got {version!r}")
     version = int(version)
-    if version != TEMPORAL_RESAMPLING_SPEC_VERSION:
-        raise ValueError(
-            f"unsupported temporal resampling version {version}; "
-            f"expected {TEMPORAL_RESAMPLING_SPEC_VERSION}"
-        )
 
     mapping = raw.get("mapping")
-    if not isinstance(mapping, str) or mapping not in SUPPORTED_TEMPORAL_MAPPINGS:
-        raise ValueError(
-            "temporal resampling mapping must be exactly one of "
-            f"{sorted(SUPPORTED_TEMPORAL_MAPPINGS)}, got {mapping!r}"
-        )
 
     if mapping == IDENTITY:
         factor_value = raw.get("factor", 1.0)
     else:
-        if "factor" not in raw:
-            raise ValueError(f"temporal resampling mapping {mapping!r} requires factor")
         factor_value = raw["factor"]
-
-    if isinstance(factor_value, bool) or not isinstance(factor_value, Real):
-        raise TypeError(
-            f"temporal resampling factor must be a real number, got {factor_value!r}"
-        )
     factor = float(factor_value)
-    if not math.isfinite(factor):
-        raise ValueError(f"temporal resampling factor must be finite, got {factor!r}")
-    if mapping == IDENTITY:
-        if factor != 1.0:
-            raise ValueError("identity temporal resampling requires factor=1.0")
-    elif factor <= 1.0:
-        raise ValueError(
-            f"{mapping} temporal slowdown requires factor > 1.0, got {factor}"
-        )
 
     return TemporalResamplingSpec(version=version, mapping=mapping, factor=factor)
 
@@ -201,7 +153,7 @@ def validate_temporal_resampling_spec(spec: SpecLike) -> TemporalResamplingSpec:
 def canonicalize_temporal_resampling_spec(spec: SpecLike) -> dict[str, Any]:
     """Return the stable JSON-safe representation used by provenance hashing."""
 
-    value = validate_temporal_resampling_spec(spec)
+    value = parse_temporal_resampling_spec(spec)
     return {
         "version": value.version,
         "mapping": value.mapping,
@@ -225,7 +177,7 @@ def temporal_resampling_spec_digest(spec: SpecLike) -> str:
 def is_identity_temporal_resampling(spec: SpecLike) -> bool:
     """Return whether ``spec`` leaves the native timeline unchanged."""
 
-    return validate_temporal_resampling_spec(spec).is_identity
+    return parse_temporal_resampling_spec(spec).is_identity
 
 
 def virtual_episode_length(native_length: int, spec: SpecLike) -> int:
@@ -237,8 +189,8 @@ def virtual_episode_length(native_length: int, spec: SpecLike) -> int:
     ``M > 1``.
     """
 
-    native_length = _validate_nonnegative_integer(native_length, name="native_length")
-    value = validate_temporal_resampling_spec(spec)
+    native_length = _parse_integer(native_length, name="native_length")
+    value = parse_temporal_resampling_spec(spec)
     return _virtual_episode_length_validated(native_length, value)
 
 
@@ -257,13 +209,7 @@ def _normalize_virtual_indices(
     virtual_length: int,
 ) -> np.ndarray:
     values = np.asarray(virtual_indices)
-    if values.dtype.kind == "b" or values.dtype.kind not in {"i", "u"}:
-        raise TypeError("virtual_indices must contain integers")
     values = values.astype(np.int64, copy=False)
-    if values.size and (np.any(values < 0) or np.any(values >= virtual_length)):
-        raise IndexError(
-            f"virtual index outside [0, {virtual_length}): {values.tolist()}"
-        )
     return values
 
 
@@ -278,8 +224,8 @@ def build_temporal_index_map(
     Supplied indices may have any shape; every returned array has that same shape.
     """
 
-    native_length = _validate_nonnegative_integer(native_length, name="native_length")
-    value = validate_temporal_resampling_spec(spec)
+    native_length = _parse_integer(native_length, name="native_length")
+    value = parse_temporal_resampling_spec(spec)
     virtual_length = virtual_episode_length(native_length, value)
     if virtual_indices is None:
         indices = np.arange(virtual_length, dtype=np.int64)
@@ -321,8 +267,6 @@ def build_temporal_index_map(
             indices.astype(np.float64) / value.factor,
             float(native_length - 1),
         )
-    else:  # pragma: no cover - validation makes this unreachable.
-        raise AssertionError(value.mapping)
 
     coordinates = np.clip(coordinates, 0.0, float(native_length - 1))
     lower = np.floor(coordinates).astype(np.int64)
@@ -356,61 +300,21 @@ def is_temporally_continuous_feature(feature_key: str) -> bool:
     return feature_key in CONTINUOUS_FEATURE_LAYOUTS
 
 
-def _validate_interpolation_inputs(
+def _prepare_interpolation_inputs(
     lower: ArrayLike,
     upper: ArrayLike,
     alpha: Any,
     *,
     expected_dimension: int,
 ) -> tuple[ArrayLike, ArrayLike, ArrayLike]:
-    if isinstance(lower, torch.Tensor) != isinstance(upper, torch.Tensor):
-        raise TypeError("lower and upper must use the same NumPy or PyTorch backend")
-    if not isinstance(lower, (np.ndarray, torch.Tensor)) or not isinstance(
-        upper, (np.ndarray, torch.Tensor)
-    ):
-        raise TypeError("lower and upper must be NumPy arrays or PyTorch tensors")
-    if lower.shape != upper.shape:
-        raise ValueError(
-            f"lower/upper shape mismatch: {tuple(lower.shape)} != {tuple(upper.shape)}"
-        )
-    if lower.ndim < 1 or lower.shape[-1] != expected_dimension:
-        raise ValueError(
-            f"expected last dimension {expected_dimension}, got {tuple(lower.shape)}"
-        )
 
     prefix = tuple(lower.shape[:-1])
     if isinstance(lower, torch.Tensor):
-        if not (lower.dtype.is_floating_point and upper.dtype.is_floating_point):
-            raise TypeError("continuous interpolation requires floating-point tensors")
-        if lower.dtype != upper.dtype or lower.device != upper.device:
-            raise TypeError("lower and upper must have identical dtype and device")
         alpha_value = torch.as_tensor(alpha, dtype=lower.dtype, device=lower.device)
-        try:
-            alpha_value = torch.broadcast_to(alpha_value, prefix)
-        except RuntimeError as exc:
-            raise ValueError(
-                f"alpha shape {tuple(alpha_value.shape)} cannot broadcast to {prefix}"
-            ) from exc
-        if not bool(torch.isfinite(alpha_value).all()):
-            raise ValueError("alpha must be finite")
-        if bool(((alpha_value < 0) | (alpha_value > 1)).any()):
-            raise ValueError("alpha must lie in [0, 1]")
+        alpha_value = torch.broadcast_to(alpha_value, prefix)
     else:
-        if lower.dtype.kind != "f" or upper.dtype.kind != "f":
-            raise TypeError("continuous interpolation requires floating-point arrays")
-        if lower.dtype != upper.dtype:
-            raise TypeError("lower and upper must have identical dtype")
         alpha_value = np.asarray(alpha, dtype=lower.dtype)
-        try:
-            alpha_value = np.broadcast_to(alpha_value, prefix)
-        except ValueError as exc:
-            raise ValueError(
-                f"alpha shape {alpha_value.shape} cannot broadcast to {prefix}"
-            ) from exc
-        if not np.all(np.isfinite(alpha_value)):
-            raise ValueError("alpha must be finite")
-        if np.any((alpha_value < 0) | (alpha_value > 1)):
-            raise ValueError("alpha must lie in [0, 1]")
+        alpha_value = np.broadcast_to(alpha_value, prefix)
     return lower, upper, alpha_value
 
 
@@ -423,10 +327,6 @@ def _slerp_wxyz_numpy(
     q1 = upper.astype(np.float64, copy=False)
     n0 = np.linalg.norm(q0, axis=-1, keepdims=True)
     n1 = np.linalg.norm(q1, axis=-1, keepdims=True)
-    if np.any(~np.isfinite(n0)) or np.any(~np.isfinite(n1)):
-        raise ValueError("quaternion norms must be finite")
-    if np.any(n0 <= 1e-12) or np.any(n1 <= 1e-12):
-        raise ValueError("cannot SLERP a zero-norm quaternion")
     q0n = q0 / n0
     q1n = q1 / n1
     dot = np.sum(q0n * q1n, axis=-1, keepdims=True)
@@ -459,10 +359,6 @@ def _slerp_wxyz_torch(
     q1 = upper.to(dtype=work_dtype)
     n0 = torch.linalg.vector_norm(q0, dim=-1, keepdim=True)
     n1 = torch.linalg.vector_norm(q1, dim=-1, keepdim=True)
-    if not bool(torch.isfinite(n0).all()) or not bool(torch.isfinite(n1).all()):
-        raise ValueError("quaternion norms must be finite")
-    if bool((n0 <= 1e-12).any()) or bool((n1 <= 1e-12).any()):
-        raise ValueError("cannot SLERP a zero-norm quaternion")
     q0n = q0 / n0
     q1n = q1 / n1
     dot = torch.sum(q0n * q1n, dim=-1, keepdim=True)
@@ -500,35 +396,17 @@ def interpolate_continuous_vectors(
     useful for tests or future continuous vector layouts; production ego fields
     should normally go through :func:`interpolate_continuous_feature`.
     """
-
-    if not isinstance(lower, (np.ndarray, torch.Tensor)):
-        raise TypeError("lower must be a NumPy array or PyTorch tensor")
     dimension = int(lower.shape[-1]) if lower.ndim else 0
     normalized_slices: list[tuple[int, int]] = []
     occupied: set[int] = set()
     for item in quaternion_slices:
-        if len(item) != 2:
-            raise ValueError(f"invalid quaternion slice {item!r}")
         start, end = item
-        if (
-            isinstance(start, bool)
-            or isinstance(end, bool)
-            or not isinstance(start, Integral)
-            or not isinstance(end, Integral)
-        ):
-            raise TypeError(f"quaternion slice bounds must be integers: {item!r}")
         start, end = int(start), int(end)
-        if start < 0 or end != start + 4 or end > dimension:
-            raise ValueError(
-                f"quaternion slice must select four in-range columns: {(start, end)}"
-            )
         columns = set(range(start, end))
-        if occupied & columns:
-            raise ValueError("quaternion slices must not overlap")
         occupied |= columns
         normalized_slices.append((start, end))
 
-    lower, upper, alpha_value = _validate_interpolation_inputs(
+    lower, upper, alpha_value = _prepare_interpolation_inputs(
         lower, upper, alpha, expected_dimension=dimension
     )
     if isinstance(lower, torch.Tensor):
@@ -559,13 +437,6 @@ def interpolate_continuous_feature(
     """Interpolate one registered EEF16/camera7 continuous feature."""
 
     layout = continuous_feature_layout(feature_key)
-    if layout is None:
-        raise KeyError(f"feature is not registered as temporally continuous: {feature_key!r}")
-    if lower.ndim < 1 or lower.shape[-1] != layout.dimension:
-        raise ValueError(
-            f"feature {feature_key!r} requires dimension {layout.dimension}, "
-            f"got {tuple(lower.shape)}"
-        )
     return interpolate_continuous_vectors(
         lower,
         upper,
@@ -590,7 +461,7 @@ def temporal_resampling_provenance(
     remains bounded-memory for million-episode corpora.
     """
 
-    value = validate_temporal_resampling_spec(spec)
+    value = parse_temporal_resampling_spec(spec)
     result: dict[str, Any] = {
         "version": TEMPORAL_RESAMPLING_PROVENANCE_VERSION,
         "spec": canonicalize_temporal_resampling_spec(value),
@@ -618,7 +489,7 @@ def temporal_resampling_provenance(
     native_frames = 0
     virtual_frames = 0
     for index, raw_length in enumerate(native_episode_lengths):
-        length = _validate_nonnegative_integer(
+        length = _parse_integer(
             raw_length, name=f"native_episode_lengths[{index}]"
         )
         virtual = _virtual_episode_length_validated(length, value)

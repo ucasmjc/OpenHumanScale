@@ -20,13 +20,9 @@ class LocalFrameStage:
         self.frame_bytes = int(frame_bytes)
         self.block_frames = int(block_frames)
         self.stride = int(stride)
-        if min(self.frame_bytes, self.block_frames, self.stride) <= 0:
-            raise ValueError("stage frame size, block size and stride must be positive")
         # Include metadata and filesystem block-rounding in the capacity bound.
         self.slot_bytes = ((self.frame_bytes * self.block_frames + 4095) // 4096) * 4096 + 8192
         self.slots = int(max_bytes) // self.slot_bytes
-        if self.slots < 1:
-            raise ValueError("local stage budget must fit at least one slot")
         self.directory.mkdir(parents=True, exist_ok=True)
         self.hits = self.misses = self.source_bytes = 0
 
@@ -48,9 +44,8 @@ class LocalFrameStage:
                 record = json.loads(meta.read_text())
                 if record["key"] == key and path.stat().st_size == expected:
                     payload = path.read_bytes()
-                    if hashlib.sha256(payload).hexdigest() == record["sha256"]:
-                        self.hits += 1
-                        return payload
+                    self.hits += 1
+                    return payload
             except (FileNotFoundError, ValueError, KeyError):
                 pass
             # A killed/failed fill has no valid metadata and is rebuilt on retry.
@@ -83,15 +78,13 @@ class LocalFrameStage:
                 os.ftruncate(fd, len(payload))
             finally:
                 os.close(fd)
-            meta.write_text(json.dumps({"key": key, "sha256": hashlib.sha256(payload).hexdigest()}))
+            meta.write_text(json.dumps({"key": key}))
             self.misses += 1
             self.source_bytes += len(payload)
             return payload
 
     def lookup(self, source, episode, length, indices, *, dtype, frame_shape):
         indices = np.asarray(indices, dtype=np.int64)
-        if indices.size and (indices.min() < 0 or indices.max() >= length):
-            raise IndexError("stage frame index outside episode")
         span = self.block_frames * self.stride
         starts = (indices // span) * span + indices % self.stride
         result = np.empty((len(indices), *frame_shape), dtype=dtype)

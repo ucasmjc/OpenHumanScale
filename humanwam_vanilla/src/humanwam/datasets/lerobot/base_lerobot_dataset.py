@@ -1,7 +1,6 @@
 # Modified by Open-HumanScale contributors: package namespace renamed to humanwam.
 import json
 import os
-import hashlib
 import torch
 import numpy as np
 from pathlib import Path
@@ -11,13 +10,9 @@ from tqdm import tqdm
 from .content_addressed_cache import ContentAddressedFileCache
 from .lerobot.lerobot_dataset import LeRobotDatasetMetadata, MultiLeRobotDataset
 from .episode_exclusion import (
-    load_episode_exclusion_manifest as _load_episode_exclusion_manifest,
-    validate_manifest_roots,
-)
+    load_episode_exclusion_manifest as _load_episode_exclusion_manifest)
 from .episode_segments import (
-    load_episode_segment_manifest,
-    validate_segment_manifest_roots,
-)
+    load_episode_segment_manifest)
 
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import traceback
@@ -26,8 +21,6 @@ from .processors.base_processor import BaseProcessor
 
 logger = get_logger(__name__)
 
-MAX_GETITEM_ATTEMPT = 5
-MAX_BAD_EPISODE_RESAMPLE_ATTEMPT = 64
 NORM_STATS_WEIGHTINGS = ("legacy", "loss")
 
 # Dataset stats are I/O heavy and normally read from a shared filesystem.  Keep the
@@ -61,34 +54,13 @@ def _resolve_temporal_resampling_by_root(
     configured: Dict[str, Any] = {}
 
     if isinstance(temporal_resampling, Mapping) and "rules" in temporal_resampling:
-        if set(temporal_resampling) != {"rules"}:
-            raise ValueError(
-                "temporal_resampling rules form may contain only the 'rules' key"
-            )
         rules = temporal_resampling["rules"]
-        if not isinstance(rules, Sequence) or isinstance(rules, (str, bytes)):
-            raise TypeError("temporal_resampling.rules must be a list of mappings")
         parsed_rules = []
         for position, rule in enumerate(rules):
-            if not isinstance(rule, Mapping):
-                raise TypeError(
-                    f"temporal_resampling rule {position} must be a mapping"
-                )
             selectors = [key for key in ("dataset_root", "root_prefix") if key in rule]
-            if len(selectors) != 1:
-                raise ValueError(
-                    f"temporal_resampling rule {position} must contain exactly one "
-                    "of dataset_root or root_prefix"
-                )
             selector = selectors[0]
             selector_path = Path(str(rule[selector])).expanduser().resolve()
             if "spec" in rule:
-                unexpected = set(rule) - {selector, "spec"}
-                if unexpected:
-                    raise ValueError(
-                        f"temporal_resampling rule {position} mixes spec with inline "
-                        f"fields: {sorted(unexpected)}"
-                    )
                 spec = rule["spec"]
             else:
                 spec = {key: value for key, value in rule.items() if key != selector}
@@ -104,19 +76,9 @@ def _resolve_temporal_resampling_by_root(
                     matched = matched or selector_path in root_path.parents
                 if matched:
                     matches.append((position, spec))
-            if len(matches) != 1:
-                raise ValueError(
-                    "Each dataset root must match exactly one temporal_resampling "
-                    f"rule; root={root}, matching_rules={[p for p, _ in matches]}"
-                )
             position, spec = matches[0]
             match_counts[position] += 1
             configured[root] = spec
-        unused = [position for position, count in enumerate(match_counts) if count == 0]
-        if unused:
-            raise ValueError(
-                f"temporal_resampling rules did not match any dataset root: {unused}"
-            )
         return [configured[root] for root in resolved_roots]
 
     if isinstance(temporal_resampling, Mapping):
@@ -126,41 +88,12 @@ def _resolve_temporal_resampling_by_root(
     ):
         parsed_entries = []
         for position, entry in enumerate(temporal_resampling):
-            if not isinstance(entry, Mapping):
-                raise TypeError(
-                    "temporal_resampling list entries must be mappings containing "
-                    f"dataset_root and spec; entry {position} is {type(entry).__name__}"
-                )
-            if "dataset_root" not in entry or "spec" not in entry:
-                raise ValueError(
-                    "temporal_resampling list entries must contain dataset_root and "
-                    f"spec; entry {position} has keys {sorted(entry)}"
-                )
             parsed_entries.append((entry["dataset_root"], entry["spec"]))
         entries = parsed_entries
-    else:
-        raise TypeError(
-            "temporal_resampling must be either an exact-root mapping or a list of "
-            "{dataset_root, spec} entries"
-        )
 
     for root, spec in entries:
         resolved_root = str(Path(str(root)).expanduser().resolve())
-        if resolved_root in configured:
-            raise ValueError(
-                f"Duplicate temporal_resampling entry for dataset root {resolved_root}"
-            )
         configured[resolved_root] = spec
-
-    expected = set(resolved_roots)
-    observed = set(configured)
-    if expected != observed:
-        missing = sorted(expected - observed)
-        extra = sorted(observed - expected)
-        raise ValueError(
-            "temporal_resampling roots must match dataset_dirs exactly after path "
-            f"resolution; missing={missing}, extra={extra}"
-        )
     return [configured[root] for root in resolved_roots]
 
 
@@ -177,11 +110,6 @@ def _apply_episode_exclusion_manifest(
     configured_roots = {
         str(Path(meta.root).expanduser().resolve()): meta for meta in metas
     }
-    validate_manifest_roots(
-        manifest_path,
-        manifest_roots,
-        set(configured_roots),
-    )
 
     filtered = {repo_id: list(indices) for repo_id, indices in pools.items()}
     total_excluded_episodes = 0
@@ -189,32 +117,13 @@ def _apply_episode_exclusion_manifest(
     for root, entry in manifest_roots.items():
         meta = configured_roots[root]
         excluded = entry["excluded_episode_indices"]
-        available = set(int(index) for index in meta.episodes)
-        missing = sorted(excluded - available)
-        if missing:
-            raise ValueError(
-                f"Episode exclusion manifest references absent indices for {root}: "
-                f"{missing[:20]}"
-            )
         excluded_frames = sum(
             int(meta.episodes[index]["length"]) for index in excluded
         )
-        declared_frames = entry["excluded_frames"]
-        if declared_frames is not None and declared_frames != excluded_frames:
-            raise ValueError(
-                f"Excluded frame mismatch for {root}: manifest={declared_frames}, "
-                f"sum(excluded episode lengths)={excluded_frames}"
-            )
 
         pool = filtered[meta.repo_id]
         filtered[meta.repo_id] = [index for index in pool if index not in excluded]
         removed_from_pool = len(pool) - len(filtered[meta.repo_id])
-        if not filtered[meta.repo_id]:
-            raise ValueError(
-                f"Episode exclusion manifest {manifest_path} removes every candidate "
-                f"episode from {root}; remove that root from dataset_dirs or keep at "
-                "least one episode"
-            )
         total_excluded_episodes += len(excluded)
         total_excluded_frames += excluded_frames
         logger.info(
@@ -246,15 +155,9 @@ def _resolve_stats_limit(
     if value is None:
         raw_value = os.environ.get(env_name)
         if raw_value is not None:
-            try:
-                value = int(raw_value)
-            except ValueError as exc:
-                raise ValueError(f"{env_name} must be a positive integer, got {raw_value!r}") from exc
+            value = int(raw_value)
         else:
             value = default_value
-
-    if value <= 0:
-        raise ValueError(f"{env_name} must be a positive integer, got {value}")
     if value > hard_limit:
         logger.warning(f"Capping {env_name}={value} at the safety limit {hard_limit}")
         value = hard_limit
@@ -293,11 +196,6 @@ def _dual_arm_action_valid_dims(
 
     action_dim = action.shape[-1]
     eef_dim = action_dim if hand_action_dim is None else int(hand_action_dim)
-    if eef_dim <= 0 or eef_dim > action_dim or eef_dim % 2 != 0:
-        raise ValueError(
-            "Per-hand normalization requires two equal contiguous arm blocks, "
-            f"got transformed action dim {action_dim}"
-        )
     half = eef_dim // 2
     valid_dims = torch.ones(action_dim, dtype=torch.bool)
     if source_hand_tag == "left":
@@ -344,22 +242,11 @@ class _StreamingTensorStats:
             self.mean_m2 = torch.zeros_like(mean, dtype=torch.float64)
             self.var_sum = torch.zeros_like(var, dtype=torch.float64)
             self.valid_episode_count = torch.zeros(mean.shape[-1], dtype=torch.int64)
-        else:
-            if mean.shape != self.mean.shape:
-                raise ValueError(
-                    "Per-episode stats have inconsistent stepwise shapes: "
-                    f"expected {tuple(self.mean.shape)}, got {tuple(mean.shape)}"
-                )
 
         if valid_dims is None:
             valid_dims = torch.ones(mean.shape[-1], dtype=torch.bool)
         else:
             valid_dims = torch.as_tensor(valid_dims, dtype=torch.bool, device="cpu")
-            if valid_dims.shape != (mean.shape[-1],):
-                raise ValueError(
-                    "valid_dims must match the transformed tensor's last dimension: "
-                    f"expected {(mean.shape[-1],)}, got {tuple(valid_dims.shape)}"
-                )
 
         # The mask is per action channel and applies to every action step.  torch.where
         # is intentional: multiplying an inactive NaN/Inf channel by zero would still
@@ -397,16 +284,6 @@ class _StreamingTensorStats:
         self.count += 1
 
     def finalize(self) -> Dict[str, torch.Tensor]:
-        if self.count == 0:
-            raise RuntimeError("Cannot finalize empty dataset statistics")
-        if bool((self.valid_episode_count == 0).any()):
-            missing_dims = torch.nonzero(
-                self.valid_episode_count == 0, as_tuple=False
-            ).flatten().tolist()
-            raise RuntimeError(
-                "Cannot compute normalization statistics: no valid episodes for "
-                f"channels {missing_dims}"
-            )
 
         # Per-hand sources can contribute different episode counts to left/right
         # channels.  Counts are per dimension but shared across action steps.
@@ -483,8 +360,6 @@ class _ReservoirQuantileSampler:
     """
 
     def __init__(self, cols: int, dim: int, size: int, seed: int = 0):
-        if size <= 0:
-            raise ValueError(f"reservoir size must be positive, got {size}")
         self.size = int(size)
         # Row ``size`` is a scratch slot that swallows rejected items.
         self.values = torch.full((self.size + 1, cols, dim), torch.nan, dtype=torch.float32)
@@ -492,10 +367,6 @@ class _ReservoirQuantileSampler:
         self.generator = torch.Generator().manual_seed(int(seed))
 
     def update(self, values: torch.Tensor, valid: torch.Tensor) -> None:
-        if values.ndim != 3 or values.shape[1:] != self.count.shape:
-            raise ValueError(
-                f"expected values [n, {tuple(self.count.shape)}], got {tuple(values.shape)}"
-            )
         values = values.detach().to(torch.float32, copy=False).cpu()
         valid = valid.to(torch.bool)
         n = values.shape[0]
@@ -551,26 +422,13 @@ def _summarize_loss_weighted_tensor(
     ``_StreamingLossWeightedTensorStats(quantile_reservoir_size=...)`` can draw a
     reservoir sample for true global/stepwise quantiles.
     """
-    if value.ndim != 3:
-        raise ValueError(f"Expected [anchor, step, dim] tensor, got {tuple(value.shape)}")
-    if token_weights.shape != value.shape[:2]:
-        raise ValueError(
-            "token_weights must match [anchor, step]: "
-            f"expected {tuple(value.shape[:2])}, got {tuple(token_weights.shape)}"
-        )
 
     value = value.detach().cpu()
     token_weights = torch.as_tensor(token_weights, dtype=torch.float64, device="cpu")
-    if bool((token_weights < 0).any()):
-        raise ValueError("token_weights must be non-negative")
     if valid_dims is None:
         valid_dims = torch.ones(value.shape[-1], dtype=torch.bool)
     else:
         valid_dims = torch.as_tensor(valid_dims, dtype=torch.bool, device="cpu")
-        if valid_dims.shape != (value.shape[-1],):
-            raise ValueError(
-                f"valid_dims must have shape {(value.shape[-1],)}, got {tuple(valid_dims.shape)}"
-            )
 
     token_valid = token_weights > 0
     combined_valid = token_valid.unsqueeze(-1) & valid_dims.view(1, 1, -1)
@@ -653,12 +511,6 @@ class _StreamingLossWeightedTensorStats:
                 self.global_reservoir = _ReservoirQuantileSampler(
                     1, dim, self.quantile_reservoir_size, seed=self.quantile_seed + 1
                 )
-        elif summary["weight_sum"].shape != self.weight_sum.shape:
-            raise ValueError(
-                "Per-episode weighted stats have inconsistent shapes: "
-                f"expected {tuple(self.weight_sum.shape)}, "
-                f"got {tuple(summary['weight_sum'].shape)}"
-            )
 
         valid = summary["weight_sum"] > 0
         self.weight_sum.add_(summary["weight_sum"])
@@ -677,11 +529,6 @@ class _StreamingLossWeightedTensorStats:
             valid, torch.maximum(self.stepwise_q99, summary["q99"]), self.stepwise_q99
         )
         if self.stepwise_reservoir is not None:
-            if "values" not in summary or "valid" not in summary:
-                raise KeyError(
-                    "quantile_reservoir_size > 0 requires summaries produced with "
-                    "_summarize_loss_weighted_tensor(..., return_values=True)"
-                )
             values, token_valid = summary["values"], summary["valid"]
             self.stepwise_reservoir.update(values, token_valid)
             self.global_reservoir.update(
@@ -690,16 +537,8 @@ class _StreamingLossWeightedTensorStats:
             )
 
     def finalize(self) -> Dict[str, torch.Tensor]:
-        if self.weight_sum is None:
-            raise RuntimeError("Cannot finalize empty dataset statistics")
 
         global_weight = self.weight_sum.sum(0)
-        if bool((global_weight == 0).any()):
-            missing_dims = torch.nonzero(global_weight == 0, as_tuple=False).flatten().tolist()
-            raise RuntimeError(
-                "Cannot compute normalization statistics: no valid weighted tokens for "
-                f"channels {missing_dims}"
-            )
 
         global_mean64 = self.sum.sum(0) / global_weight
         global_var64 = (
@@ -789,7 +628,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         content_cache_dir: Optional[str] = None,
         content_cache_manifest: Optional[str] = None,
         content_cache_max_bytes: int = 0,
-        content_cache_verify_on_hit: bool = False,
 
         # optional episode whitelist: restrict the candidate episode pool (applied
         # BEFORE the train/val split). Either a list[int] or a path to a JSON list.
@@ -810,28 +648,10 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         # observation.state[t] as the chunk anchor.  Other datasets keep 0.
         action_time_offset_frames: int = 0,
         video_timestamp_tolerance_s: float = 1e-4,
-        strict_data_loading: bool = False,
     ):
-        self.strict_data_loading = bool(strict_data_loading)
-        assert len(dataset_dirs) > 0, "At least one dataset directory is required"
         resolved_dataset_dirs = [
             str(Path(path).expanduser().resolve()) for path in dataset_dirs
         ]
-        if len(set(resolved_dataset_dirs)) != len(resolved_dataset_dirs):
-            duplicates = sorted(
-                path
-                for path in set(resolved_dataset_dirs)
-                if resolved_dataset_dirs.count(path) > 1
-            )
-            raise ValueError(f"Duplicate dataset roots are not allowed: {duplicates}")
-        assert past_action_size == 0
-        assert past_obs_size == 0
-        assert action_size == obs_size - 1, "In this dataset, action_size should be obs_size - 1"
-        if not isinstance(action_time_offset_frames, int):
-            raise TypeError(
-                "action_time_offset_frames must be an integer, got "
-                f"{type(action_time_offset_frames).__name__}"
-            )
 
         self.dataset_dirs = dataset_dirs
         self.shape_meta = shape_meta
@@ -846,23 +666,10 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                 content_cache_dir,
                 manifest_path=content_cache_manifest,
                 max_bytes=content_cache_max_bytes,
-                verify_on_hit=content_cache_verify_on_hit,
             )
             if content_cache_dir is not None
             else None
         )
-        if content_cache_manifest is not None and self.content_file_cache is None:
-            raise ValueError(
-                "content_cache_manifest requires content_cache_dir"
-            )
-        # Per-DataLoader-worker circuit breaker for video episodes that repeatedly
-        # fail PyAV random-access decode. RoboTwin can raise av.error.InvalidDataError
-        # for multiple frame anchors even when a sequential ffmpeg decode succeeds.
-        # Retrying every anchor repeatedly decodes the same bad file, emits a full
-        # traceback, and turns a single slow rank into a distributed barrier.
-        # Workers are separate processes, so this set is intentionally process-local
-        # and lock-free.
-        self._runtime_bad_video_episodes = set()
         metas = []
         for ds_dir in dataset_dirs:
             ds_root = Path(ds_dir)
@@ -875,7 +682,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
             metas.append(meta)
 
         fps_list = [m.fps for m in metas]
-        assert len(set(fps_list)) == 1, f"All dataset_dirs must have the same fps, got {fps_list}"
         fps = fps_list[0]
 
         self.global_sample_stride = global_sample_stride
@@ -931,13 +737,7 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                 with open(episode_subset) as f:
                     episode_subset = json.load(f)
             episode_subset = [int(e) for e in episode_subset]
-            assert len(metas) == 1, (
-                f"episode_subset is only supported for a single dataset_dir, got {len(metas)}"
-            )
             total = metas[0].total_episodes
-            assert all(0 <= e < total for e in episode_subset), (
-                f"episode_subset has indices outside [0, {total})"
-            )
             pools = {metas[0].repo_id: list(episode_subset)}
             logger.info(
                 f"Using episode_subset: {len(episode_subset)}/{total} episodes for {metas[0].repo_id}"
@@ -959,11 +759,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
             episode_segment_manifest,
             include_document=True,
         )
-        validate_segment_manifest_roots(
-            segment_manifest_path,
-            segment_manifest_roots,
-            set(resolved_dataset_dirs),
-        )
         if segment_manifest_path is not None:
             for meta, resolved_root in zip(metas, resolved_dataset_dirs, strict=True):
                 root_segments = segment_manifest_roots[resolved_root]["segments"]
@@ -983,11 +778,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                     for episode_index in pools[meta.repo_id]
                     if episode_index in referenced
                 ]
-                if not pools[meta.repo_id]:
-                    raise ValueError(
-                        f"Episode segment manifest {segment_manifest_path} leaves "
-                        f"no candidate physical episodes under {resolved_root}"
-                    )
                 logger.info(
                     "Logical segment view selects %d physical episodes under %s",
                     len(pools[meta.repo_id]),
@@ -1093,31 +883,8 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         contract = manifest_document.get("environment_sampling")
         if contract is None:
             return None
-        if not isinstance(contract, dict) or contract.get("mode") != "uniform":
-            raise ValueError(
-                "episode segment manifest environment_sampling must be an object "
-                "with mode='uniform'"
-            )
         raw_order = contract.get("environment_order")
-        if not isinstance(raw_order, list) or not raw_order:
-            raise ValueError(
-                "environment_sampling.environment_order must be a non-empty list"
-            )
         environment_order = tuple(str(value).strip() for value in raw_order)
-        if any(not value for value in environment_order):
-            raise ValueError("environment_sampling contains an empty environment ID")
-        if len(set(environment_order)) != len(environment_order):
-            raise ValueError("environment_sampling environment IDs must be unique")
-        declared_ids_sha = contract.get("environment_ids_sha256")
-        if declared_ids_sha is not None:
-            observed_ids_sha = hashlib.sha256(
-                "\n".join(environment_order).encode("utf-8")
-            ).hexdigest()
-            if declared_ids_sha != observed_ids_sha:
-                raise ValueError(
-                    "environment_sampling.environment_ids_sha256 does not match "
-                    "environment_order"
-                )
 
         spans: dict[str, list[tuple[int, int]]] = {
             environment_id: [] for environment_id in environment_order
@@ -1125,24 +892,9 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         root_offset = 0
         for dataset in self.multi_dataset._datasets:
             tags = getattr(dataset, "_logical_segment_environment_ids", None)
-            if tags is None:
-                raise ValueError(
-                    "env-uniform manifests require environment_id on every logical "
-                    f"segment under {dataset.root}"
-                )
             starts = dataset.episode_data_index["from"].tolist()
             ends = dataset.episode_data_index["to"].tolist()
-            if len(tags) != len(starts):
-                raise ValueError(
-                    f"Environment tag count mismatch under {dataset.root}: "
-                    f"tags={len(tags)}, logical episodes={len(starts)}"
-                )
             for environment_id, start, end in zip(tags, starts, ends, strict=True):
-                if environment_id not in spans:
-                    raise ValueError(
-                        f"Logical segment uses undeclared environment_id="
-                        f"{environment_id!r} under {dataset.root}"
-                    )
                 global_start = root_offset + int(start)
                 global_end = root_offset + int(end)
                 existing = spans[environment_id]
@@ -1151,89 +903,13 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                 else:
                     existing.append((global_start, global_end))
             root_offset += int(dataset.num_frames)
-
-        if root_offset != len(self):
-            raise ValueError(
-                f"Environment span frame total disagrees with dataset: "
-                f"roots={root_offset}, dataset={len(self)}"
-            )
         capacities = tuple(
             sum(end - start for start, end in spans[environment_id])
             for environment_id in environment_order
         )
-        if any(capacity <= 0 for capacity in capacities):
-            empty = [
-                environment_id
-                for environment_id, capacity in zip(
-                    environment_order, capacities, strict=True
-                )
-                if capacity <= 0
-            ]
-            raise ValueError(f"Environment sampling has empty environments: {empty}")
-
-        declared_frames = contract.get("selected_actual_frames_by_environment")
-        if declared_frames is not None:
-            if not isinstance(declared_frames, dict):
-                raise ValueError(
-                    "selected_actual_frames_by_environment must be an object"
-                )
-            observed = dict(zip(environment_order, capacities, strict=True))
-            expected = {
-                str(key): int(value) for key, value in declared_frames.items()
-            }
-            if observed != expected:
-                raise ValueError(
-                    "Environment sampling frame totals disagree with logical segments"
-                )
-
-        declared_capacities = contract.get("capacity_actual_frames_by_environment")
-        if declared_capacities is not None:
-            if not isinstance(declared_capacities, dict):
-                raise ValueError(
-                    "capacity_actual_frames_by_environment must be an object"
-                )
-            expected_keys = set(environment_order)
-            if set(map(str, declared_capacities)) != expected_keys:
-                raise ValueError(
-                    "Environment capacity metadata keys disagree with environment_order"
-                )
-            too_small = {
-                environment_id: int(declared_capacities[environment_id])
-                for environment_id, observed_capacity in zip(
-                    environment_order, capacities, strict=True
-                )
-                if int(declared_capacities[environment_id]) < observed_capacity
-            }
-            if too_small:
-                raise ValueError(
-                    "Declared environment capacities are below selected frame totals: "
-                    f"{too_small}"
-                )
 
         training_total_samples = int(contract.get("training_total_samples", 0))
-        if training_total_samples <= 0:
-            raise ValueError(
-                "environment_sampling.training_total_samples must be positive"
-            )
-        if training_total_samples % len(environment_order) != 0:
-            raise ValueError(
-                "environment_sampling.training_total_samples must be divisible by K"
-            )
         samples_per_environment = training_total_samples // len(environment_order)
-        declared_quota = contract.get("training_samples_per_environment")
-        if (
-            declared_quota is not None
-            and int(declared_quota) != samples_per_environment
-        ):
-            raise ValueError(
-                "environment_sampling.training_samples_per_environment disagrees "
-                "with training_total_samples / K"
-            )
-        if any(capacity < samples_per_environment for capacity in capacities):
-            raise ValueError(
-                "Environment condition capacity is below the configured uniform "
-                f"training quota of {samples_per_environment:,} samples/environment"
-            )
 
         result = {
             "mode": "uniform",
@@ -1246,15 +922,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         active_axis = contract.get("active_axis")
         if active_axis is not None:
             provenance = manifest_document.get("codebook_annotation_provenance") or {}
-            if provenance.get("mode") != "active_axis_projection":
-                raise ValueError(
-                    "environment_sampling.active_axis requires an active-axis "
-                    "projection manifest"
-                )
-            if provenance.get("active_axis") != active_axis:
-                raise ValueError(
-                    "environment_sampling.active_axis disagrees with manifest provenance"
-                )
             result.update(
                 {
                     "active_axis": str(active_axis),
@@ -1304,20 +971,17 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         return tag if tag in ("left", "right", "both") else None
 
     def _get_action(self, meta, lerobot_sample) -> torch.Tensor:
-        key, lerobot_key, raw_shape = meta["key"], meta["lerobot_key"], meta["raw_shape"]
+        lerobot_key = meta["lerobot_key"]
         action: torch.Tensor = lerobot_sample[lerobot_key] # [T, action_dim]
         if action.ndim == 1: # for shape of 1, like gripper
             action = action.unsqueeze(-1)
-        assert action.shape[-1] == raw_shape, f"Action '{key}' shape {action.shape[-1]} mismatch with meta {raw_shape}."
         return action
 
     def _get_state(self, meta, lerobot_sample) -> torch.Tensor:
-        key, lerobot_key, raw_shape = meta["key"], meta["lerobot_key"], meta["raw_shape"]
+        lerobot_key = meta["lerobot_key"]
         state: torch.Tensor = lerobot_sample[lerobot_key]
         if state.ndim == 1: # for shape of 1, like gripper
             state = state.unsqueeze(-1)
-        # state = state[..., :-1, :]  # use state_{t} as observation_t
-        assert state.shape[-1] == raw_shape, f"State '{key}' shape {state.shape[-1]} mismatch with meta {raw_shape}."
         return state
 
     def _get_image(self, meta, lerobot_sample) -> torch.Tensor:
@@ -1344,7 +1008,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                 source_episode_idx = dataset._source_episode_index(remaining)
                 return dataset_idx, remaining, source_episode_idx
             remaining -= dataset.num_episodes
-        raise IndexError(f"Episode index {original_idx} out of bounds")
 
     def _get_episode_environment_id(self, episode_idx: int) -> Optional[str]:
         """Return the logical segment's env ID for env-uniform condition stats."""
@@ -1357,7 +1020,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                     return None
                 return tags[remaining]
             remaining -= dataset.num_episodes
-        raise IndexError(f"Episode index {episode_idx} out of bounds")
 
     def _get_episode_data(
         self,
@@ -1384,8 +1046,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
             action[meta["key"]] = window.float()
             if action_is_pad is None:
                 action_is_pad = cur_action_is_pad
-            elif not torch.equal(action_is_pad, cur_action_is_pad):
-                raise ValueError("Action fields have inconsistent episode lengths")
         batch = {"action": action, "state": state}
         if include_action_is_pad:
             batch["action_is_pad"] = action_is_pad
@@ -1421,13 +1081,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
     def _get_additional_data(self, sample, lerobot_sample):
         return sample
 
-    @staticmethod
-    def _is_permanent_video_decode_error(err: Exception) -> bool:
-        error_type = type(err)
-        return (
-            error_type.__name__ == "InvalidDataError"
-            and error_type.__module__.startswith("av")
-        )
 
     def _runtime_episode_key(self, sample_idx: int):
         """Map a global frame index to (dataset index, source episode index)."""
@@ -1442,60 +1095,10 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
             remaining -= dataset.num_frames
         return None
 
-    def _draw_runtime_retry_index(self) -> int:
-        for _ in range(MAX_BAD_EPISODE_RESAMPLE_ATTEMPT):
-            candidate = int(np.random.randint(len(self)))
-            key = self._runtime_episode_key(candidate)
-            if key is None or key not in self._runtime_bad_video_episodes:
-                return candidate
-        raise RuntimeError(
-            "Failed to draw a sample outside the process-local decoder-invalid video "
-            f"episode cache after {MAX_BAD_EPISODE_RESAMPLE_ATTEMPT} attempts."
-        )
-
     def __getitem__(self, idx):
-        if idx >= len(self):
-            raise IndexError(f"Index {idx} out of bounds {len(self)}.")
 
-        # Retry with random indices until we successfully load a frame.
         sample_idx = idx
-        attempt = 0
-        last_exception: Optional[Exception] = None
-        while attempt < MAX_GETITEM_ATTEMPT:
-            episode_key = self._runtime_episode_key(sample_idx)
-            if episode_key in self._runtime_bad_video_episodes:
-                sample_idx = self._draw_runtime_retry_index()
-                continue
-            try:
-                lerobot_sample = self.multi_dataset[sample_idx]
-                lerobot_sample = self._split_lerobot_sample(lerobot_sample)
-                break
-            except Exception as err:
-                if getattr(self, "strict_data_loading", False):
-                    raise
-                attempt += 1
-                last_exception = err
-                permanent_video_error = self._is_permanent_video_decode_error(err)
-                if permanent_video_error and episode_key is not None:
-                    self._runtime_bad_video_episodes.add(episode_key)
-                logger.warning(
-                    "Error loading sample %s episode=%s (attempt %s/%s%s). "
-                    "Retrying with a random index. Error: %r",
-                    sample_idx,
-                    episode_key,
-                    attempt,
-                    MAX_GETITEM_ATTEMPT,
-                    "; cached as decoder-invalid video episode" if permanent_video_error else "",
-                    err,
-                )
-                if os.environ.get("FASTWAM_DATASET_FULL_TRACEBACK", "0") == "1":
-                    logger.warning("%s", traceback.format_exc())
-                sample_idx = self._draw_runtime_retry_index()
-        else:
-            raise RuntimeError(
-                f"Failed to load a valid sample after {MAX_GETITEM_ATTEMPT} attempts "
-                f"for index {idx}."
-            ) from last_exception
+        lerobot_sample = self._split_lerobot_sample(self.multi_dataset[sample_idx])
 
         # Get data from lerobot, organized in nested dict
         sample = {
@@ -1604,37 +1207,14 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         episode-equal moments over replicated action padding. ``loss`` matches action
         loss element weights and uses frame/anchor-equal state moments.
         """
-        if any(getattr(t, "requires_action_camera", False)
-               for t in (getattr(preprocessor, "action_state_transforms", None) or [])):
-            raise ValueError("Egomotion statistics require scripts/precompute_sampled_norm_stats.py "
-                             "to match future camera queries and action offsets exactly")
         norm_stats_weighting = str(norm_stats_weighting).lower()
-        if norm_stats_weighting not in NORM_STATS_WEIGHTINGS:
-            raise ValueError(
-                f"norm_stats_weighting must be one of {NORM_STATS_WEIGHTINGS}, "
-                f"got {norm_stats_weighting!r}"
-            )
         loss_weighted = norm_stats_weighting == "loss"
         quantile_reservoir_size = int(quantile_reservoir_size)
         quantile_seed = int(quantile_seed)
-        if quantile_reservoir_size < 0:
-            raise ValueError("quantile_reservoir_size must be non-negative")
-        if quantile_reservoir_size > 0 and not loss_weighted:
-            raise ValueError(
-                "True quantile reservoirs require norm_stats_weighting='loss'"
-            )
         if full_horizon_query_deltas is not None:
-            if not loss_weighted or self.environment_sampling is not None:
-                raise ValueError("Full-horizon stats require loss weighting without environment resampling")
             min_delta, max_delta = map(int, full_horizon_query_deltas)
-            if min_delta > max_delta:
-                raise ValueError("Inverted full-horizon query deltas")
         environment_anchor_weights = None
         if self.environment_sampling is not None:
-            if not loss_weighted:
-                raise ValueError(
-                    "Environment-uniform conditions require norm_stats_weighting='loss'"
-                )
             environment_anchor_weights = {
                 environment_id: 1.0 / capacity
                 for environment_id, capacity in zip(
@@ -1644,8 +1224,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
                 )
             }
         episodes_num = self.multi_dataset.num_episodes
-        if episodes_num <= 0:
-            raise ValueError("Cannot compute normalization statistics for an empty dataset")
 
         cpu_count = os.cpu_count() or 1
         max_workers = _resolve_stats_limit(
@@ -1708,11 +1286,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
             anchor_weight = 1.0
             if environment_anchor_weights is not None:
                 environment_id = self._get_episode_environment_id(episode_idx)
-                if environment_id not in environment_anchor_weights:
-                    raise ValueError(
-                        f"Missing environment weight for logical episode "
-                        f"{episode_idx}: {environment_id!r}"
-                    )
                 anchor_weight = environment_anchor_weights[environment_id]
 
             if loss_weighted:
@@ -1847,9 +1420,6 @@ def sliding_window_with_replication(
     Returns:
         torch.Tensor: Tensor of shape [N, window_size, D]
     """
-    assert x.dim() == 2
-    assert window_size > 0
-    assert stride > 0
 
     N, D = x.shape
 

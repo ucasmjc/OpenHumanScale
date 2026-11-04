@@ -75,8 +75,6 @@ class Upsample(nn.Upsample):
 class Resample(nn.Module):
 
     def __init__(self, dim, mode):
-        assert mode in ('none', 'upsample2d', 'upsample3d', 'downsample2d',
-                        'downsample3d')
         super().__init__()
         self.dim = dim
         self.mode = mode
@@ -198,8 +196,6 @@ def patchify(x, patch_size):
                       "b c f (h q) (w r) -> b (c r q) f h w",
                       q=patch_size,
                       r=patch_size)
-    else:
-        raise ValueError(f"Invalid input shape: {x.shape}")
     return x
 
 
@@ -219,13 +215,6 @@ def unpatchify(x, patch_size):
 class Resample38(Resample):
 
     def __init__(self, dim, mode):
-        assert mode in (
-            "none",
-            "upsample2d",
-            "upsample3d",
-            "downsample2d",
-            "downsample3d",
-        )
         super(Resample, self).__init__()
         self.dim = dim
         self.mode = mode
@@ -348,8 +337,6 @@ class AvgDown3D(nn.Module):
         self.factor_t = factor_t
         self.factor_s = factor_s
         self.factor = self.factor_t * self.factor_s * self.factor_s
-
-        assert in_channels * self.factor % out_channels == 0
         self.group_size = in_channels * self.factor // out_channels
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -402,8 +389,6 @@ class DupUp3D(nn.Module):
         self.factor_t = factor_t
         self.factor_s = factor_s
         self.factor = self.factor_t * self.factor_s * self.factor_s
-
-        assert out_channels * self.factor % in_channels == 0
         self.repeats = out_channels * self.factor // in_channels
 
     def forward(self, x: torch.Tensor, first_chunk=False) -> torch.Tensor:
@@ -981,8 +966,6 @@ class VideoVAE_(nn.Module):
         # launch. The causal feat-cache carries left context across calls, so the result
         # is numerically identical regardless of grouping.
         group = int(chunk_frames) if int(chunk_frames) > 0 else 4
-        if group % 4 != 0:
-            raise ValueError(f"`chunk_frames` must be a positive multiple of 4, got {chunk_frames}.")
 
         # Prime chunk (frame 0).
         self._enc_conv_idx = [0]
@@ -1235,7 +1218,6 @@ class WanVideoVAE(nn.Module):
         for video in videos:
             video = video.unsqueeze(0)
             if tiled:
-                raise NotImplementedError("Tiled encoding is not allowed yet.")
                 tile_size = (tile_size[0] * self.upsampling_factor, tile_size[1] * self.upsampling_factor)
                 tile_stride = (tile_stride[0] * self.upsampling_factor, tile_stride[1] * self.upsampling_factor)
                 hidden_state = self.tiled_encode(video, device, tile_size, tile_stride)
@@ -1321,8 +1303,6 @@ class VideoVAE38_(VideoVAE_):
         # launch. The causal feat-cache carries left context across calls, so the result
         # is numerically identical regardless of grouping. (Mirrors VideoVAE_.encode.)
         group = int(chunk_frames) if int(chunk_frames) > 0 else 4
-        if group % 4 != 0:
-            raise ValueError(f"`chunk_frames` must be a positive multiple of 4, got {chunk_frames}.")
 
         # Prime chunk (frame 0).
         self._enc_conv_idx = [0]

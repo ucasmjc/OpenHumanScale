@@ -32,16 +32,12 @@ class DualArmWristBasisTransform:
 
     def __init__(self, category_keys, basis_left=None, basis_right=None,
                  origin_offset=None, basis_path=None, num_arms=2):
-        if num_arms != 2:
-            raise ValueError("DualArmWristBasisTransform currently requires two arms")
         if basis_path is not None:
             import json
             contract = json.loads(open(basis_path, encoding="utf-8").read())
             basis_left = contract["basis_left"]
             basis_right = contract["basis_right"]
             origin_offset = contract["origin_offset_input_frame_m"]
-        if basis_left is None or basis_right is None:
-            raise ValueError("basis_left/basis_right or basis_path is required")
         if origin_offset is None:
             origin_offset = (0.0, 0.0, 0.0)
         self.category_keys = category_keys
@@ -51,15 +47,6 @@ class DualArmWristBasisTransform:
             torch.as_tensor(basis_right, dtype=torch.float32),
         ]
         self.origin_offset = torch.as_tensor(origin_offset, dtype=torch.float32)
-        for arm, B in enumerate(self.basis):
-            if B.shape != (3, 3):
-                raise ValueError(f"basis[{arm}] must be 3x3, got {tuple(B.shape)}")
-            if not torch.allclose(B @ B.T, torch.eye(3), atol=1e-5):
-                raise ValueError(f"basis[{arm}] is not orthonormal")
-            if not torch.isclose(torch.linalg.det(B), torch.tensor(1.0), atol=1e-5):
-                raise ValueError(f"basis[{arm}] must be a proper rotation")
-        if self.origin_offset.shape != (3,):
-            raise ValueError("origin_offset must contain three local-frame values")
 
     def _run(self, batch, inverse):
         for cat, keys in self.category_keys.items():
@@ -68,8 +55,6 @@ class DualArmWristBasisTransform:
             for key in keys:
                 value = batch[cat][key]
                 block = value.shape[-1] // self.num_arms
-                if block < 8 or value.shape[-1] % self.num_arms:
-                    raise ValueError(f"expected dual-arm pose blocks, got {value.shape}")
                 out = []
                 for arm, pose in enumerate(torch.split(value, block, dim=-1)):
                     B = self.basis[arm].to(dtype=pose.dtype, device=pose.device)
@@ -120,7 +105,6 @@ class DualArmWorldToCameraTransform:
 
     def __init__(self, cam2world: List[List[float]], category_keys: Dict[str, List[str]], num_arms: int = 2):
         c2w = torch.tensor(cam2world, dtype=torch.float32)
-        assert c2w.shape == (4, 4), f"cam2world must be 4x4, got {tuple(c2w.shape)}"
         self.cam2world = c2w
         self.world2cam = torch.inverse(c2w)
         self.category_keys = category_keys
@@ -143,9 +127,6 @@ class DualArmWorldToCameraTransform:
         return batch
 
     def _convert(self, x: torch.Tensor, to_camera: bool) -> torch.Tensor:
-        assert x.shape[-1] % self.num_arms == 0, (
-            f"pose dim {x.shape[-1]} not divisible by num_arms {self.num_arms}"
-        )
         block = x.shape[-1] // self.num_arms
         out = [self._convert_block(b, to_camera) for b in torch.split(x, block, dim=-1)]
         return torch.cat(out, dim=-1)

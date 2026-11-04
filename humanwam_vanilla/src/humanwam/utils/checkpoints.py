@@ -23,8 +23,6 @@ def _sorted_steps(paths: Iterable[Path]) -> list[Path]:
 
 def prune_training_states(state_dir: os.PathLike[str] | str, keep_last: int) -> list[Path]:
     """Delete complete trainer states except the newest ``keep_last`` entries."""
-    if keep_last < 0:
-        raise ValueError(f"keep_last must be >= 0, got {keep_last}")
     root = Path(state_dir)
     if not root.is_dir():
         return []

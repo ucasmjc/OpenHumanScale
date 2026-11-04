@@ -12,10 +12,8 @@ from .helpers.gradient import gradient_checkpoint_forward
 
 from humanwam.camera_pose import (
     CAMERA_POSE_BLOCK_DIM,
-    CAMERA_POSE_REPRESENTATIONS,
     build_camera_pose_blocks,
-    camera_pose_fixed_normalization,
-)
+    camera_pose_fixed_normalization)
 from humanwam.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -40,21 +38,9 @@ class CameraPoseConditioner(nn.Module):
         local_rotation_scale_rad: float,
     ) -> None:
         super().__init__()
-        if pose_hidden_dim <= 0:
-            raise ValueError(
-                f"camera pose hidden dimension must be positive, got {pose_hidden_dim}."
-            )
-        if not 0.0 <= dropout < 1.0:
-            raise ValueError(f"camera pose dropout must lie in [0,1), got {dropout}.")
         self.translation_tolerance_m = float(translation_tolerance_m)
         self.rotation_tolerance_deg = float(rotation_tolerance_deg)
         self.representation = str(representation).strip().lower()
-        if self.representation not in CAMERA_POSE_REPRESENTATIONS:
-            raise ValueError(
-                "Unsupported camera pose representation "
-                f"{self.representation!r}; expected one of "
-                f"{sorted(CAMERA_POSE_REPRESENTATIONS)}."
-            )
         self.dropout = float(dropout)
         mean, std = camera_pose_fixed_normalization(
             local_translation_scale_m=float(local_translation_scale_m),
@@ -122,13 +108,6 @@ class ActionAdaLNConditioner(nn.Module):
         conditioner_hidden_dim: int = 512,
     ) -> None:
         super().__init__()
-        if action_dim <= 0:
-            raise ValueError(f"action_dim must be positive, got {action_dim}")
-        if conditioner_hidden_dim <= 0:
-            raise ValueError(
-                "conditioner_hidden_dim must be positive, "
-                f"got {conditioner_hidden_dim}"
-            )
         self.action_dim = int(action_dim)
         self.hidden_dim = int(hidden_dim)
         self.encoder = nn.Sequential(
@@ -154,31 +133,7 @@ class ActionAdaLNConditioner(nn.Module):
         num_future_groups: int,
         tokens_per_frame: int,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if action.ndim != 3:
-            raise ValueError(
-                "Action AdaLN input must be [B, action_horizon, action_dim], "
-                f"got {tuple(action.shape)}"
-            )
-        if action.shape[-1] != self.action_dim:
-            raise ValueError(
-                f"Action AdaLN expected action_dim={self.action_dim}, "
-                f"got {action.shape[-1]}"
-            )
-        if num_future_groups <= 0:
-            raise ValueError(
-                f"num_future_groups must be positive, got {num_future_groups}"
-            )
-        if tokens_per_frame <= 0:
-            raise ValueError(
-                f"tokens_per_frame must be positive, got {tokens_per_frame}"
-            )
         action_horizon = int(action.shape[1])
-        if action_horizon % num_future_groups != 0:
-            raise ValueError(
-                "Action horizon must be divisible by the number of future "
-                f"latent groups: horizon={action_horizon}, "
-                f"groups={num_future_groups}"
-            )
 
         actions_per_group = action_horizon // num_future_groups
         grouped = action.reshape(
@@ -207,16 +162,7 @@ def _fa4_func():
     """
     if _FA4_STATE["func"] is not None:
         return _FA4_STATE["func"]
-    if _FA4_STATE["unavailable_reason"] is not None:
-        raise RuntimeError(_FA4_STATE["unavailable_reason"])
-    try:
-        from flash_attn.cute.interface import flash_attn_func
-    except Exception as error:  # pragma: no cover - depends on optional install
-        _FA4_STATE["unavailable_reason"] = (
-            "The fa4 SDPA backend requires flash-attn-4 on PYTHONPATH "
-            f"(import failed: {error!r})."
-        )
-        raise RuntimeError(_FA4_STATE["unavailable_reason"]) from error
+    from flash_attn.cute.interface import flash_attn_func
     _FA4_STATE["func"] = flash_attn_func
     return flash_attn_func
 
@@ -236,8 +182,6 @@ def _fa4_first_frame_causal_mask_mod(video_tokens: int, first_frame_tokens: int,
         def mutual_mask_mod(b_idx, h_idx, q_idx, kv_idx, seqlen_info, aux_tensors, *aux_scalars):
             return (q_idx >= first_frame_tokens) | (kv_idx < first_frame_tokens)
         return mutual_mask_mod
-    if mode != "isolated":
-        raise ValueError(f"Unknown joint attention mode: {mode}")
 
     # FA4 calls mask_mod as
     # (batch_idx, head_idx, q_idx, kv_idx, seqlen_info, aux_tensors[, aux_scalars]).
@@ -321,17 +265,10 @@ def flash_attention(
                 "cudnn": SDPBackend.CUDNN_ATTENTION,
                 "math": SDPBackend.MATH,
             }
-            if backend_name not in backends:
-                raise ValueError(
-                    "FASTWAM_SDPA_BACKEND/FASTWAM_MIXED_SDPA_BACKEND must be one of "
-                    f"{sorted(['default', 'fa4', *backends])}, got {backend_name!r}."
-                )
             with sdpa_kernel(backends=[backends[backend_name]]):
                 x = F.scaled_dot_product_attention(q, k, v, attn_mask=ctx_mask)
         x = rearrange(x, "b n s d -> b s (n d)", n=num_heads)
         return x
-    else:
-        raise NotImplementedError("Only compatibility mode is implemented for flash attention. Please set compatibility_mode=True.")
 
 
 def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor):
@@ -429,11 +366,6 @@ def create_group_causal_attn_mask(
                 [False, False, False, False,  True,  True]])
 
     """
-    assert mode in ["causal", "group_diagonal"], f"Mode {mode} must be 'causal' or 'group_diagonal'"
-
-    # Total number of query and key tokens
-    total_num_query_tokens = num_temporal_groups * num_query_per_group  # Total number of query tokens (L)
-    total_num_key_tokens = num_temporal_groups * num_key_per_group  # Total number of key tokens (S)
 
     # Generate time indices for query and key tokens (shape: [L] and [S])
     query_time_indices = torch.arange(num_temporal_groups).repeat_interleave(num_query_per_group)  # Shape: [L]
@@ -449,8 +381,6 @@ def create_group_causal_attn_mask(
     elif mode == "group_diagonal":
         # Group Diagonal Mode: Query can attend only to keys where key_time == query_time
         attn_mask = query_time_indices == key_time_indices  # Shape: [L, S]
-
-    assert attn_mask.shape == (total_num_query_tokens, total_num_key_tokens), "Attention mask shape mismatch"
     return attn_mask
 
 
@@ -655,39 +585,12 @@ class WanVideoDiT(torch.nn.Module):
         self.video_attention_mask_mode = str(video_attention_mask_mode)
         self.num_view_embeddings = int(num_view_embeddings)
         self.camera_pose_conditioning = bool(camera_pose_conditioning)
-        if self.num_view_embeddings < 0:
-            raise ValueError(
-                f"`num_view_embeddings` must be >= 0, got {self.num_view_embeddings}"
-            )
-
-        if num_heads <= 0:
-            raise ValueError(f"`num_heads` must be > 0, got {num_heads}")
-        if attn_head_dim <= 0:
-            raise ValueError(f"`attn_head_dim` must be > 0, got {attn_head_dim}")
-        if attn_head_dim % 2 != 0:
-            raise ValueError(
-                f"`attn_head_dim` must be even for RoPE, got {attn_head_dim}"
-            )
 
         self.action_conditioned = action_conditioned
         self.action_dim = action_dim
         self.action_cross_attention = bool(action_cross_attention)
         self.action_adaln = bool(action_adaln)
         self.action_adaln_hidden_dim = int(action_adaln_hidden_dim)
-        if self.action_adaln and not self.action_conditioned:
-            raise ValueError(
-                "`action_adaln=True` requires `action_conditioned=True`."
-            )
-        if self.action_conditioned and not (
-            self.action_cross_attention or self.action_adaln
-        ):
-            raise ValueError(
-                "Action-conditioned VideoDiT requires at least one injection "
-                "path: action_cross_attention or action_adaln."
-            )
-        assert has_image_input == False
-        assert require_clip_embedding == False
-        assert require_vae_embedding == False and fuse_vae_embedding_in_latents == True, "Only support fusing vae embedding in latents"
 
         self.patch_embedding = nn.Conv3d(
             in_dim, hidden_dim, kernel_size=patch_size, stride=patch_size)
@@ -779,7 +682,7 @@ class WanVideoDiT(torch.nn.Module):
             x=self.patch_size[0], y=self.patch_size[1], z=self.patch_size[2]
         )
 
-    def _validate_forward_inputs(
+    def _prepare_forward_inputs(
         self,
         x: torch.Tensor,
         timestep: torch.Tensor,
@@ -787,51 +690,15 @@ class WanVideoDiT(torch.nn.Module):
         context_mask: Optional[torch.Tensor],
         action: Optional[torch.Tensor],
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        if x.ndim != 5:
-            raise ValueError(f"`latents` must be 5D [B, C, T, H, W], got shape {tuple(x.shape)}")
-        num_latent_frames = x.shape[2]
-        if context.ndim != 3:
-            raise ValueError(f"`context` must be 3D [B, L, D], got shape {tuple(context.shape)}")
-        if timestep.ndim != 1:
-            raise ValueError(f"`timestep` must be 1D [B] or [1], got shape {tuple(timestep.shape)}")
-        if self.action_conditioned:
-            allow_text_only_single_frame = (num_latent_frames == 1 and action is None)
-            if not allow_text_only_single_frame:
-                assert action is not None, "Action input is required for action-conditioned model."
-                if action.ndim != 3:
-                    raise ValueError(f"`action` must be 3D [B, action_horizon, action_dim], got shape {tuple(action.shape)}")
-                if action.shape[2] != self.action_dim:
-                    raise ValueError(f"`action` last dimension must be {self.action_dim}, got {action.shape[2]}")
-                if num_latent_frames <= 1:
-                    raise ValueError(f"video length must be > 1 for action-conditioned model, got {num_latent_frames}")
-                if action.shape[1] % (num_latent_frames - 1) != 0:
-                    raise ValueError(
-                        f"action horizon must be divisible by (num_latent_frames - 1), got action_horizon={action.shape[1]}"
-                    )
         if context_mask is None:
             context_mask = torch.ones((context.shape[0], context.shape[1]), dtype=torch.bool, device=context.device)
-        else:
-            if context_mask.ndim != 2:
-                raise ValueError(f"`context_mask` must be 2D [B, L], got shape {tuple(context_mask.shape)}")
-            if context_mask.shape[0] != context.shape[0] or context_mask.shape[1] != context.shape[1]:
-                raise ValueError(f"`context_mask` shape must match `context` shape [B, L], got {tuple(context_mask.shape)} vs {tuple(context.shape)}")
 
         batch_size = x.shape[0]
         if batch_size != context.shape[0]:
             if not self.training and batch_size == 1:
                 x = x.expand(context.shape[0], -1, -1, -1, -1)
                 batch_size = context.shape[0]
-            else:
-                raise ValueError(
-                    f"Batch mismatch between latents and context: {batch_size} vs {context.shape[0]}."
-                )
-
-        if timestep.shape[0] not in (1, batch_size):
-            raise ValueError(
-                f"`timestep` length must be 1 or batch_size({batch_size}), got {timestep.shape[0]}"
-            )
         if timestep.shape[0] == 1 and batch_size > 1:
-            assert not self.training, "During training, timestep length must match batch_size."
             timestep = timestep.expand(batch_size)
         return x, timestep, context_mask
 
@@ -841,20 +708,11 @@ class WanVideoDiT(torch.nn.Module):
         video_tokens_per_frame: int,
         device: torch.device,
     ) -> torch.Tensor:
-        if video_seq_len <= 0:
-            raise ValueError(f"`video_seq_len` must be positive, got {video_seq_len}")
-        if video_tokens_per_frame <= 0:
-            raise ValueError(f"`video_tokens_per_frame` must be positive, got {video_tokens_per_frame}")
 
         if self.video_attention_mask_mode == "bidirectional":
             return torch.ones((video_seq_len, video_seq_len), dtype=torch.bool, device=device)
 
         if self.video_attention_mask_mode == "per_frame_causal":
-            if video_seq_len % video_tokens_per_frame != 0:
-                raise ValueError(
-                    "`video_seq_len` must be divisible by `video_tokens_per_frame` in `per_frame_causal` mode, "
-                    f"got {video_seq_len} and {video_tokens_per_frame}"
-                )
             num_video_frames = video_seq_len // video_tokens_per_frame
             frame_causal = torch.tril(
                 torch.ones((num_video_frames, num_video_frames), dtype=torch.bool, device=device)
@@ -868,8 +726,6 @@ class WanVideoDiT(torch.nn.Module):
             first_frame_tokens = min(video_tokens_per_frame, video_seq_len)
             video_mask[:first_frame_tokens, first_frame_tokens:] = False
             return video_mask
-
-        raise ValueError(f"Unsupported video attention mask mode: {self.video_attention_mask_mode}")
 
     def pre_dit(
         self,
@@ -887,7 +743,7 @@ class WanVideoDiT(torch.nn.Module):
         camera_pose_delta: Optional[torch.Tensor] = None,
         camera_pose_valid: Optional[torch.Tensor] = None,
     ) -> Dict[str, Any]:
-        x, timestep, context_mask = self._validate_forward_inputs(
+        x, timestep, context_mask = self._prepare_forward_inputs(
             x=x,
             timestep=timestep,
             context=context,
@@ -898,16 +754,9 @@ class WanVideoDiT(torch.nn.Module):
         batch_size = x.shape[0]
         patch_h = int(self.patch_size[1])
         patch_w = int(self.patch_size[2])
-        if x.shape[3] % patch_h != 0 or x.shape[4] % patch_w != 0:
-            raise ValueError(
-                "Latent spatial shape must be divisible by DiT patch size, "
-                f"got HxW=({x.shape[3]}, {x.shape[4]}), patch=({patch_h}, {patch_w})"
-            )
         tokens_per_frame = (x.shape[3] // patch_h) * (x.shape[4] // patch_w)
 
         if self.seperated_timestep and fuse_vae_embedding_in_latents:
-            if not hasattr(self, "patch_size") or len(self.patch_size) < 3:
-                raise ValueError(f"Invalid dit.patch_size: {getattr(self, 'patch_size', None)}")
 
             token_timesteps = torch.ones(
                 (batch_size, x.shape[2], tokens_per_frame),
@@ -921,11 +770,6 @@ class WanVideoDiT(torch.nn.Module):
             pose_stationary = None
             if self.camera_pose_conditioner is not None:
                 if camera_pose_delta is None:
-                    if x.shape[2] != 1:
-                        raise ValueError(
-                            "Camera-pose-conditioned VideoDiT requires "
-                            "camera_pose_delta for multi-frame video generation."
-                        )
                     camera_pose_delta = torch.eye(
                         4, dtype=torch.float32, device=x.device
                     ).reshape(1, 1, 4, 4).expand(batch_size, -1, -1, -1)
@@ -940,34 +784,17 @@ class WanVideoDiT(torch.nn.Module):
                 pose_by_token = pose_by_latent.repeat_interleave(
                     tokens_per_frame, dim=1
                 )
-                if pose_by_token.shape != t.shape:
-                    raise RuntimeError(
-                        "Camera pose/timestep token mismatch: "
-                        f"pose={tuple(pose_by_token.shape)} time={tuple(t.shape)}."
-                    )
                 # Latent zero is intentionally included: its pose block is exact
                 # identity, matching stationary future blocks after deadband.
                 t = t + pose_by_token.to(dtype=t.dtype)
             t_mod = self.time_projection(t).unflatten(2, (6, self.hidden_dim))
         else:
-            raise NotImplementedError("Only support seperated_timestep with fuse_vae_embedding_in_latents for now.")
             t = self.time_embedding(sinusoidal_embedding_1d(self.freq_dim, timestep))
             t_mod = self.time_projection(t).unflatten(1, (6, self.hidden_dim))
         x = self.patchify(x, control_camera_latents_input=control_camera_latents_input)
         f, h, w = x.shape[2:]
 
         if self.action_adaln and action is not None:
-            # The observed latent frame is deliberately action-free.  Each
-            # subsequent latent frame receives the chunk of raw actions that
-            # drives the corresponding transition.  This is a training-time
-            # privileged condition for future-video denoising; single-frame
-            # FastWAM action inference passes action=None and takes the legacy
-            # current-frame path.
-            if f <= 1:
-                raise ValueError(
-                    "Action AdaLN conditioning requires at least one future "
-                    f"latent frame, got f={f}."
-                )
             action_time_tokens, action_mod_tokens = (
                 self.action_adaln_conditioner(
                     action,
@@ -975,19 +802,6 @@ class WanVideoDiT(torch.nn.Module):
                     tokens_per_frame=tokens_per_frame,
                 )
             )
-            expected_future_tokens = (f - 1) * tokens_per_frame
-            if action_time_tokens.shape[1] != expected_future_tokens:
-                raise RuntimeError(
-                    "Action AdaLN/time token mismatch: "
-                    f"got {action_time_tokens.shape[1]}, "
-                    f"expected {expected_future_tokens}."
-                )
-            if t.shape[1] != f * tokens_per_frame:
-                raise RuntimeError(
-                    "Action AdaLN requires one timestep/modulation per video "
-                    "token, got "
-                    f"time={t.shape[1]} and video={f * tokens_per_frame}."
-                )
             null_time = torch.zeros_like(t[:, :tokens_per_frame])
             null_modulation = torch.zeros(
                 (
@@ -1023,12 +837,6 @@ class WanVideoDiT(torch.nn.Module):
 
             # new mask
             num_temporal_groups = f - 1 # first latent frame do not attend to actions
-            if num_temporal_groups <= 0:
-                raise ValueError(
-                    "Action-conditioned context mask requires at least 2 latent frames when `action` is provided."
-                )
-            assert action_emb.shape[1] % num_temporal_groups == 0, \
-                f"Action embedding length {action_emb.shape[1]} must be divisible by number of temporal groups {num_temporal_groups}"
             # Each latent frame (from the 2nd one) attends to the corresponding group of action tokens
             action_group_mask = create_group_causal_attn_mask(
                 num_temporal_groups=num_temporal_groups,
@@ -1045,10 +853,6 @@ class WanVideoDiT(torch.nn.Module):
             final_context_mask[:, tokens_per_frame:, context_len:] = action_group_mask.unsqueeze(0).expand(batch_size, -1, -1) # (B, seq_len, action_len)
             context_mask = final_context_mask
         elif self.action_conditioned and self.action_cross_attention and action is None:
-            if f != 1:
-                raise ValueError(
-                    "Action-conditioned model requires `action` unless running single-frame text-only mode with num_latent_frames=1."
-                )
             context_mask = context_mask.unsqueeze(1).expand(-1, f * h * w, -1) # (B, seq_len, L)
         else:
             context_mask = context_mask.unsqueeze(1).expand(-1, f * h * w, -1) # (B, seq_len, L)
@@ -1057,47 +861,17 @@ class WanVideoDiT(torch.nn.Module):
 
         custom_spatial_positions = spatial_row_ids is not None or spatial_col_ids is not None
         if custom_spatial_positions:
-            if spatial_row_ids is None or spatial_col_ids is None:
-                raise ValueError(
-                    "`spatial_row_ids` and `spatial_col_ids` must be provided together."
-                )
             spatial_row_ids = torch.as_tensor(
                 spatial_row_ids, device=x_tokens.device, dtype=torch.long
             )
             spatial_col_ids = torch.as_tensor(
                 spatial_col_ids, device=x_tokens.device, dtype=torch.long
             )
-            if tuple(spatial_row_ids.shape) != (h, w) or tuple(spatial_col_ids.shape) != (h, w):
-                raise ValueError(
-                    "Custom spatial position IDs must match the patch grid: "
-                    f"grid={(h, w)} row={tuple(spatial_row_ids.shape)} "
-                    f"col={tuple(spatial_col_ids.shape)}."
-                )
-            if int(spatial_row_ids.min().item()) < 0 or int(spatial_col_ids.min().item()) < 0:
-                raise ValueError("Custom spatial position IDs must be non-negative.")
-            if int(spatial_row_ids.max().item()) >= self.freqs[1].shape[0]:
-                raise ValueError("`spatial_row_ids` exceeds the precomputed RoPE table.")
-            if int(spatial_col_ids.max().item()) >= self.freqs[2].shape[0]:
-                raise ValueError("`spatial_col_ids` exceeds the precomputed RoPE table.")
 
         if spatial_view_ids is not None:
-            if self.view_embedding is None:
-                raise ValueError(
-                    "`spatial_view_ids` was provided but `num_view_embeddings=0`."
-                )
             spatial_view_ids = torch.as_tensor(
                 spatial_view_ids, device=x_tokens.device, dtype=torch.long
             )
-            if tuple(spatial_view_ids.shape) != (h, w):
-                raise ValueError(
-                    "`spatial_view_ids` must match the patch grid: "
-                    f"grid={(h, w)} ids={tuple(spatial_view_ids.shape)}."
-                )
-            if int(spatial_view_ids.min().item()) < 0 or int(spatial_view_ids.max().item()) >= self.num_view_embeddings:
-                raise ValueError(
-                    "`spatial_view_ids` contains an invalid view index for "
-                    f"num_view_embeddings={self.num_view_embeddings}."
-                )
             per_frame_view_ids = spatial_view_ids.reshape(-1)
             token_view_ids = per_frame_view_ids.repeat(f)
             x_tokens = x_tokens + self.view_embedding(token_view_ids).unsqueeze(0).to(
@@ -1129,10 +903,6 @@ class WanVideoDiT(torch.nn.Module):
             # [B, f] (long); build freqs of shape [B, f*h*w, 1, dim]. rope_apply
             # broadcasts over the head dim, so per-sample freqs are applied correctly.
             ti = temporal_index.to(self.freqs[0].device).long()  # [B, f]
-            if ti.ndim != 2 or ti.shape[1] != f:
-                raise ValueError(
-                    f"`temporal_index` must be [B, f]=[{batch_size}, {f}], got {tuple(ti.shape)}"
-                )
             B = ti.shape[0]
             f_part = self.freqs[0][ti].view(B, f, 1, 1, -1).expand(B, f, h, w, -1)
             if custom_spatial_positions:

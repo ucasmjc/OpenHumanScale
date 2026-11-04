@@ -49,10 +49,8 @@ from ..temporal_resampling import (
     build_temporal_index_map,
     interpolate_continuous_feature,
     is_temporally_continuous_feature,
-    validate_temporal_resampling_spec,
-    virtual_episode_length,
-)
-import traceback
+    parse_temporal_resampling_spec,
+    virtual_episode_length)
 
 CODEBASE_VERSION = "v2.1"
 
@@ -159,8 +157,6 @@ class LeRobotDatasetMetadata:
         self.skip_episode_stats = bool(skip_episode_stats)
 
         try:
-            if force_cache_sync:
-                raise FileNotFoundError
             self.load_metadata()
         except (FileNotFoundError, NotADirectoryError):
 
@@ -456,7 +452,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.video_backend = video_backend if video_backend else get_safe_default_codec()
         self.lazy_parquet_loading = bool(lazy_parquet_loading)
         self.file_cache = file_cache
-        self.temporal_resampling = validate_temporal_resampling_spec(temporal_resampling)
+        self.temporal_resampling = parse_temporal_resampling_spec(temporal_resampling)
         self.temporal_resampling_enabled = not self.temporal_resampling.is_identity
         self._episode_segments_enabled = episode_segments is not None
         self._requested_episode_segments = list(episode_segments or [])
@@ -497,11 +493,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
             self.meta.episodes, self.episodes
         )
         if self._episode_segments_enabled:
-            if self.temporal_resampling_enabled:
-                raise ValueError(
-                    "episode_segments currently require an identity/native "
-                    "temporal_resampling timeline"
-                )
             self._configure_episode_segments()
         elif getattr(self, "temporal_resampling_enabled", False):
             native_lengths = (
@@ -544,9 +535,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         else:
             # Load actual data through the historical Hugging Face backend.
             try:
-                if force_cache_sync:
-                    raise FileNotFoundError
-                assert all((self.root / fpath).is_file() for fpath in self.get_episodes_file_paths())
                 self.hf_dataset = self.load_hf_dataset()
             except (AssertionError, FileNotFoundError, NotADirectoryError):
                 self.revision = CODEBASE_VERSION
@@ -683,37 +671,15 @@ class LeRobotDataset(torch.utils.data.Dataset):
         validated: list[dict[str, Any]] = []
         for raw_segment in self._requested_episode_segments:
             source_episode = int(raw_segment["episode_index"])
-            if source_episode not in self.meta.episodes:
-                raise ValueError(
-                    f"episode_segments references absent episode {source_episode} "
-                    f"under {self.root}"
-                )
             start = int(raw_segment["start_frame"])
             end = int(raw_segment["end_frame"])
-            physical_length = int(self.meta.episodes[source_episode]["length"])
-            if start < 0 or end <= start or end > physical_length:
-                raise ValueError(
-                    f"episode_segments range [{start}, {end}) is outside episode "
-                    f"{source_episode} length {physical_length} under {self.root}"
-                )
             task = str(raw_segment.get("task", "")).strip()
-            if not task:
-                raise ValueError(
-                    f"episode_segments has an empty task for episode "
-                    f"{source_episode} under {self.root}"
-                )
             if source_episode not in source_to_physical_pos:
                 # The physical episode was removed by whitelist/exclusion/split.
                 continue
             source_hand_tag = raw_segment.get("source_hand_tag")
             if source_hand_tag is not None:
                 source_hand_tag = str(source_hand_tag).strip().lower()
-                if source_hand_tag not in ("left", "right", "both"):
-                    raise ValueError(
-                        f"episode_segments has invalid source_hand_tag="
-                        f"{source_hand_tag!r} for episode {source_episode} under "
-                        f"{self.root}"
-                    )
             environment_id = raw_segment.get("environment_id")
             if environment_id is not None:
                 environment_id = str(environment_id).strip()
@@ -741,22 +707,11 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 int(item.get("segment_index", 0)),
             )
         )
-        if not validated:
-            raise ValueError(
-                f"episode_segments leaves no logical episodes under selected root "
-                f"{self.root}"
-            )
 
         previous_end_by_source: dict[int, int] = {}
         for segment in validated:
             source_episode = int(segment["episode_index"])
             start = int(segment["start_frame"])
-            previous_end = previous_end_by_source.get(source_episode)
-            if previous_end is not None and start < previous_end:
-                raise ValueError(
-                    f"episode_segments overlap for episode {source_episode} under "
-                    f"{self.root}: previous end={previous_end}, next start={start}"
-                )
             previous_end_by_source[source_episode] = int(segment["end_frame"])
 
         self._logical_num_episodes = len(validated)
@@ -801,8 +756,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         for axis, registry in getattr(self, "_codebook_registry", {}).items():
             atom_ids = tuple(str(value) for value in registry.get("ids", ()))
             atom_index = {value: index for index, value in enumerate(atom_ids)}
-            if len(atom_index) != len(atom_ids):
-                raise ValueError(f"Codebook registry axis {axis!r} contains duplicate IDs")
             indices = np.full(len(validated), -1, dtype=np.int32)
             confidences = np.full(len(validated), np.nan, dtype=np.float32)
             for position, segment in enumerate(validated):
@@ -810,11 +763,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 if record is None:
                     continue
                 atom_id = str(record["id"])
-                if atom_id not in atom_index:
-                    raise ValueError(
-                        f"Logical segment uses undeclared {axis!r} codebook ID "
-                        f"{atom_id!r} under {self.root}"
-                    )
                 indices[position] = atom_index[atom_id]
                 confidences[position] = float(record["confidence"])
             self._logical_segment_codebook_axes[axis] = {
@@ -864,8 +812,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         """Map a public row to logical episode, physical position/source, local row."""
 
         idx = int(idx)
-        if idx < 0 or idx >= self._selected_num_frames:
-            raise IndexError(f"Index {idx} out of bounds for {self._selected_num_frames} frames")
         logical_pos = bisect.bisect_right(self._episode_ends, idx)
         logical_start = 0 if logical_pos == 0 else self._episode_ends[logical_pos - 1]
         segment_local = idx - logical_start
@@ -892,8 +838,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
             logical_pos, _, source_episode, native_local = self._locate_logical_index(idx)
             return logical_pos, source_episode, native_local
         idx = int(idx)
-        if idx < 0 or idx >= self._selected_num_frames:
-            raise IndexError(f"Index {idx} out of bounds for {self._selected_num_frames} frames")
         episode_pos = bisect.bisect_right(self._episode_ends, idx)
         episode_start = 0 if episode_pos == 0 else self._episode_ends[episode_pos - 1]
         return episode_pos, self._source_episode_index(episode_pos), idx - episode_start
@@ -925,10 +869,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         native_local_indices: Sequence[int] | np.ndarray,
     ) -> torch.Tensor | list:
         local_indices = np.asarray(native_local_indices, dtype=np.int64)
-        if local_indices.ndim != 1:
-            raise ValueError(
-                f"native_local_indices must be 1D, got shape {local_indices.shape}"
-            )
         if self.lazy_parquet_loading:
             values = self._lazy_load_episode(source_episode)[key]
             if isinstance(values, torch.Tensor):
@@ -957,8 +897,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         if isinstance(value, torch.Tensor):
             return value.unsqueeze(0)
         array = np.asarray(value)
-        if not np.issubdtype(array.dtype, np.number):
-            raise TypeError(f"Expected a numeric temporal field, got dtype {array.dtype}")
         return torch.as_tensor(array).unsqueeze(0)
 
     def _interpolate_temporal_values(
@@ -968,17 +906,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         upper: torch.Tensor,
         alpha: np.ndarray,
     ) -> torch.Tensor:
-        if not isinstance(lower, torch.Tensor) or not isinstance(upper, torch.Tensor):
-            raise TypeError(f"Temporal field {key!r} must be tensor-valued")
-        if lower.shape != upper.shape:
-            raise ValueError(
-                f"Temporal field {key!r} pair shape mismatch: "
-                f"{tuple(lower.shape)} vs {tuple(upper.shape)}"
-            )
-        if not lower.is_floating_point() or not upper.is_floating_point():
-            raise TypeError(
-                f"Temporal field {key!r} must be floating point, got {lower.dtype}"
-            )
 
         return interpolate_continuous_feature(key, lower, upper, alpha)
 
@@ -1054,10 +981,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
     ) -> torch.Tensor | list:
         """Read and resample a column while preserving the caller's index order."""
         global_indices = np.asarray(virtual_global_indices, dtype=np.int64)
-        if global_indices.ndim != 1:
-            raise ValueError(
-                f"virtual_global_indices must be 1D, got shape {global_indices.shape}"
-            )
         if len(global_indices) == 0:
             return []
 
@@ -1166,8 +1089,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
             logical_pos, _, source_episode, native_local = self._locate_logical_index(idx)
             return logical_pos, source_episode, native_local
         idx = int(idx)
-        if idx < 0 or idx >= self._selected_num_frames:
-            raise IndexError(f"Index {idx} out of bounds for {self._selected_num_frames} frames")
         episode_pos = bisect.bisect_right(self._episode_ends, idx)
         episode_start = 0 if episode_pos == 0 else self._episode_ends[episode_pos - 1]
         source_episode = (
@@ -1197,12 +1118,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
             # File-indexed datasets may pack multiple episodes in one parquet.
             if table.num_rows != int(self.meta.episodes[source_episode]["length"]):
                 table = table.filter(pc.equal(episode_col, source_episode))
-        expected_rows = int(self.meta.episodes[source_episode]["length"])
-        if table.num_rows != expected_rows:
-            raise ValueError(
-                f"Lazy parquet row count mismatch for {path}: "
-                f"expected {expected_rows}, got {table.num_rows}"
-            )
         episode = _arrow_table_to_torch_dict(table)
         # Parquet I/O and Arrow conversion intentionally happen outside the lock.
         # Another thread may load the same episode in parallel; prefer its cached
@@ -1362,11 +1277,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
     def get_episode_data(self, episode_id: int) -> dict:
         if self._episode_segments_enabled:
             episode_id = int(episode_id)
-            if episode_id < 0 or episode_id >= self.num_episodes:
-                raise IndexError(
-                    f"Episode index {episode_id} out of bounds for "
-                    f"{self.num_episodes} logical episodes"
-                )
             source_episode = self._source_episode_index(episode_id)
             physical_pos = self._physical_episode_position(episode_id)
             start = int(self._logical_segment_starts[episode_id])
@@ -1404,10 +1314,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
             return result
         if self.temporal_resampling_enabled:
             episode_id = int(episode_id)
-            if episode_id < 0 or episode_id >= self.num_episodes:
-                raise IndexError(
-                    f"Episode index {episode_id} out of bounds for {self.num_episodes} episodes"
-                )
             source_episode = self._source_episode_index(episode_id)
             if self.lazy_parquet_loading:
                 column_names = list(self._lazy_load_episode(source_episode))
@@ -1457,8 +1363,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         """
         item = {}
         for vid_key, query_ts in query_timestamps.items():
-            if (self.root / "video_binding.json").exists():
-                raise ValueError("This loader does not yet support video_binding.json archive inputs")
             video_path = self.root / self.meta.get_video_file_path(ep_idx, vid_key)
             if self.file_cache is not None:
                 video_path = self.file_cache.stage(video_path)
@@ -1615,71 +1519,22 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
         self.ds_names = ds_names
         self.ds_roots = ds_roots
         self.tolerances_s = tolerances_s if tolerances_s else dict.fromkeys(ds_names, 0.0001)
-        if metadatas is not None and len(metadatas) != len(dataset_dirs):
-            raise ValueError(
-                f"metadatas length {len(metadatas)} does not match dataset_dirs {len(dataset_dirs)}"
-            )
         if temporal_resampling is None:
             temporal_specs = [None] * len(dataset_dirs)
         elif isinstance(temporal_resampling, Mapping):
-            if len(set(ds_names)) != len(ds_names):
-                raise ValueError(
-                    "temporal_resampling root mapping requires unique dataset_dirs"
-                )
-            if any(not isinstance(key, str) for key in temporal_resampling):
-                raise TypeError(
-                    "temporal_resampling root mapping keys must be exact dataset_dir strings"
-                )
-            expected_roots = set(ds_names)
-            observed_roots = set(temporal_resampling)
-            if observed_roots != expected_roots:
-                missing = sorted(expected_roots - observed_roots)
-                unexpected = sorted(observed_roots - expected_roots)
-                raise ValueError(
-                    "temporal_resampling root mapping must match dataset_dirs exactly; "
-                    f"missing={missing}, unexpected={unexpected}"
-                )
             temporal_specs = [temporal_resampling[name] for name in ds_names]
         elif isinstance(temporal_resampling, Sequence) and not isinstance(
             temporal_resampling, (str, bytes)
         ):
-            if len(temporal_resampling) != len(dataset_dirs):
-                raise ValueError(
-                    f"temporal_resampling length {len(temporal_resampling)} does not "
-                    f"match dataset_dirs {len(dataset_dirs)}"
-                )
             temporal_specs = list(temporal_resampling)
-        else:
-            raise TypeError(
-                "MultiLeRobotDataset temporal_resampling must be a per-root mapping, "
-                "an aligned list/tuple, or None"
-            )
         if episode_segments is None:
             segment_specs = [None] * len(dataset_dirs)
         elif isinstance(episode_segments, Mapping):
-            expected_roots = set(ds_names)
-            observed_roots = set(episode_segments)
-            if observed_roots != expected_roots:
-                raise ValueError(
-                    "episode_segments root mapping must match dataset_dirs exactly; "
-                    f"missing={sorted(expected_roots - observed_roots)}, "
-                    f"unexpected={sorted(observed_roots - expected_roots)}"
-                )
             segment_specs = [episode_segments[name] for name in ds_names]
         elif isinstance(episode_segments, Sequence) and not isinstance(
             episode_segments, (str, bytes)
         ):
-            if len(episode_segments) != len(dataset_dirs):
-                raise ValueError(
-                    f"episode_segments length {len(episode_segments)} does not "
-                    f"match dataset_dirs {len(dataset_dirs)}"
-                )
             segment_specs = list(episode_segments)
-        else:
-            raise TypeError(
-                "MultiLeRobotDataset episode_segments must be a per-root mapping, "
-                "an aligned list/tuple, or None"
-            )
         # Construct the underlying datasets passing everything but `transform` and `delta_timestamps` which
         # are handled by this class.
         self._datasets = []
@@ -1692,29 +1547,23 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
             segment_specs,
             strict=True,
         ):
-            try:
-                _dataset = LeRobotDataset(
-                    ds_name,
-                    root=ds_root,
-                    episodes=episodes[ds_name] if episodes else None,
-                    image_transforms=image_transforms,
-                    delta_timestamps=delta_timestamps,
-                    tolerance_s=self.tolerances_s[ds_name],
-                    download_videos=download_videos,
-                    video_backend=video_backend,
-                    lazy_parquet_loading=lazy_parquet_loading,
-                    metadata=metadata,
-                    temporal_resampling=temporal_spec,
-                    episode_segments=segment_spec,
-                    codebook_registry=codebook_registry,
-                    file_cache=file_cache,
-                )
-                self._datasets.append(_dataset)
-            except Exception as e:
-                # logging.error(e)
-                logging.error(f"Exception while process ds_root: {ds_root}, ds_name: {ds_name}")
-                traceback.print_exc()
-                raise e
+            _dataset = LeRobotDataset(
+                ds_name,
+                root=ds_root,
+                episodes=episodes[ds_name] if episodes else None,
+                image_transforms=image_transforms,
+                delta_timestamps=delta_timestamps,
+                tolerance_s=self.tolerances_s[ds_name],
+                download_videos=download_videos,
+                video_backend=video_backend,
+                lazy_parquet_loading=lazy_parquet_loading,
+                metadata=metadata,
+                temporal_resampling=temporal_spec,
+                episode_segments=segment_spec,
+                codebook_registry=codebook_registry,
+                file_cache=file_cache,
+            )
+            self._datasets.append(_dataset)
 
         # Disable any data keys that are not common across all of the datasets. Note: we may relax this
         # restriction in future iterations of this class. For now, this is necessary at least for being able
@@ -1723,11 +1572,6 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
         intersection_features = set(self._datasets[0].features)
         for ds in self._datasets:
             intersection_features.intersection_update(ds.features)
-        if len(intersection_features) == 0:
-            raise RuntimeError(
-                "Multiple datasets were provided but they had no keys common to all of them. "
-                "The multi-dataset functionality currently only keeps common keys."
-            )
         for ds_name, ds in zip(self.ds_names, self._datasets, strict=True):
             # Disable warning of empty extra keys do
             extra_keys = set(ds.features).difference(intersection_features)
@@ -1857,14 +1701,11 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
                 return _arrow_table_to_torch_dict(table)
             else:
                 episode_idx -= dataset.num_episodes
-        raise IndexError(f"Episode index {episode_idx} out of bounds.")
 
     def __len__(self):
         return self.num_frames
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        if idx >= len(self):
-            raise IndexError(f"Index {idx} out of bounds.")
         # Determine which dataset to get an item from based on the index.
         start_idx = 0
         dataset_idx = 0
@@ -1875,7 +1716,7 @@ class MultiLeRobotDataset(torch.utils.data.Dataset):
                 continue
             break
         else:
-            raise AssertionError("We expect the loop to break out as long as the index is within bounds.")
+            pass
         item = self._datasets[dataset_idx][idx - start_idx]
         item["dataset_index"] = torch.tensor(dataset_idx)
         for data_key in self.disabled_features:

@@ -11,14 +11,6 @@ dataloader_require_merged_cache: false
 dataloader_fail_on_cache_miss: false
 dataloader_require_video_latent_cache: false
 dataloader_fail_on_latent_cache_miss: false
-batch_shared_center_crop:
-  enabled: false
-  min_long_edge: 320
-  max_long_edge: 448
-  long_edge_step: 32
-  spatial_multiple: 32
-  seed: 42
-  verify_across_ranks: true
 lr_scheduler_type: cosine
 learning_rate: 0.0001
 warmup_ratio: 0.05
@@ -61,8 +53,6 @@ lora:
   checkpoint_mode: adapter
   resume_adapter: null
   base_checkpoint: null
-  base_checkpoint_sha256: null
-  verify_base_sha256: true
 bottleneck_adapter:
   enabled: false
   experts:
@@ -82,8 +72,6 @@ bottleneck_adapter:
   checkpoint_mode: delta
   resume_delta: null
   base_checkpoint: null
-  base_checkpoint_sha256: null
-  verify_base_sha256: true
 resume: ${paths.resume}
 resume_mot_skip_prefixes: []
 resume_skip_proprio_encoder: false
@@ -264,7 +252,6 @@ data:
     merged_video_cache_dir: null
     _recursive_: false
     norm_stats_weighting: loss
-    validate_norm_stats_provenance: true
     merged_video_cache_dtype: float32
     video_latent_cache_dir: null
     video_backend: pyav
@@ -278,7 +265,6 @@ data:
     - ${paths.data__train__text_embedding_fallback_cache_dirs__1}
     - ${paths.data__train__text_embedding_fallback_cache_dirs__2}
     - ${paths.data__train__text_embedding_fallback_cache_dirs__3}
-    strict_data_loading: true
 model:
   _target_: humanwam.runtime.create_fastwam
   model_id: Wan-AI/Wan2.2-TI2V-5B

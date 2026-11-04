@@ -30,70 +30,12 @@ _BOTTLENECK_ADAPTER_KEY_MARKERS = (
 _CAMERA_POSE_KEY_MARKER = ".camera_pose_conditioner."
 
 
-def _is_bottleneck_adapter_state_key(name: str) -> bool:
-    return any(marker in str(name) for marker in _BOTTLENECK_ADAPTER_KEY_MARKERS)
-
-
-def _is_bottleneck_adapter_up_state_key(name: str) -> bool:
-    if not _is_bottleneck_adapter_state_key(name):
-        return False
-    leaf = str(name).rsplit(".", 2)[-2:]
-    return leaf in (["up", "weight"], ["up", "bias"])
-
-
-def _is_camera_pose_state_key(name: str) -> bool:
-    return _CAMERA_POSE_KEY_MARKER in str(name)
-
-
-def _finite_debug(name: str, value: Optional[torch.Tensor]) -> None:
-    """Fail at the first non-finite training tensor when explicitly enabled."""
-    if value is None:
-        return
-    tensor = value.detach()
-    if (
-        os.environ.get("FASTWAM_SYNC_MODEL_STAGES", "0") == "1"
-        and tensor.is_cuda
-        and name
-        in {
-            "inputs.action",
-            "target.action",
-            "action_pre.t_mod",
-            "mot.action",
-            "prediction.action",
-        }
-    ):
-        torch.cuda.synchronize()
-    if os.environ.get("FASTWAM_FINITE_DEBUG", "0") != "1":
-        return
-    finite = torch.isfinite(tensor)
-    if bool(finite.all().item()):
-        return
-    bad = int((~finite).sum().item())
-    finite_values = tensor[finite].float()
-    min_value = float(finite_values.min().item()) if finite_values.numel() else float("nan")
-    max_value = float(finite_values.max().item()) if finite_values.numel() else float("nan")
-    raise FloatingPointError(
-        f"FASTWAM_FINITE_DEBUG name={name} shape={tuple(tensor.shape)} "
-        f"dtype={tensor.dtype} bad={bad}/{tensor.numel()} "
-        f"finite_min={min_value:.9g} finite_max={max_value:.9g}"
-    )
-
-
 class FastWAM(torch.nn.Module):
     """MoT world model with video/action experts."""
 
     @staticmethod
-    def _validate_robotwin_view_size(name: str, size: Sequence[int]) -> tuple[int, int]:
-        if len(size) != 2:
-            raise ValueError(f"`{name}` must contain [H, W], got {size!r}.")
+    def _parse_robotwin_view_size(name: str, size: Sequence[int]) -> tuple[int, int]:
         height, width = (int(size[0]), int(size[1]))
-        if height <= 0 or width <= 0:
-            raise ValueError(f"`{name}` dimensions must be positive, got {(height, width)}.")
-        if height % 16 != 0 or width % 16 != 0:
-            raise ValueError(
-                f"`{name}` must be divisible by 16 for Wan VAE tokenization, "
-                f"got {(height, width)}."
-            )
         return height, width
 
     def __init__(
@@ -204,8 +146,6 @@ class FastWAM(torch.nn.Module):
         self.text_encoder = text_encoder
         self.tokenizer = tokenizer
         if text_dim is None:
-            if self.text_encoder is None:
-                raise ValueError("`text_dim` is required when `text_encoder` is not loaded.")
             text_dim = int(self.text_encoder.dim)
         self.text_dim = int(text_dim)
         self.proprio_dim = None if proprio_dim is None else int(proprio_dim)
@@ -271,19 +211,7 @@ class FastWAM(torch.nn.Module):
             }
             for component in ("video", "action")
         }
-        for component, weights in self.source_loss_weights.items():
-            for source, weight in weights.items():
-                if not math.isfinite(weight) or weight < 0:
-                    raise ValueError(
-                        f"`source_loss_weights.{component}.{source}` must be finite "
-                        f"and non-negative, got {weight}."
-                    )
         self.action_component_num_arms = int(action_component_num_arms)
-        if self.action_component_num_arms <= 0:
-            raise ValueError(
-                "`action_component_num_arms` must be positive, got "
-                f"{self.action_component_num_arms}."
-            )
         action_component_loss_weights = action_component_loss_weights or {}
         self.action_component_indices = (
             resolve_action_components(
@@ -298,68 +226,24 @@ class FastWAM(torch.nn.Module):
             if self.action_component_indices is not None
             else {"position", "rotation", "gripper"}
         )
-        unknown_components = set(action_component_loss_weights) - component_names
-        if unknown_components:
-            raise ValueError(
-                "Unknown action component loss weights: "
-                f"{sorted(unknown_components)}"
-            )
         self.action_component_loss_weights = {
             name: float(action_component_loss_weights.get(name, 1.0))
             for name in sorted(component_names)
         }
-        for name, weight in self.action_component_loss_weights.items():
-            if not math.isfinite(weight) or weight < 0.0:
-                raise ValueError(
-                    f"`action_component_loss_weights.{name}` must be finite "
-                    f"and non-negative, got {weight}."
-                )
-        if not any(weight > 0.0 for weight in self.action_component_loss_weights.values()):
-            raise ValueError("At least one action component loss weight must be positive.")
 
         self.video_vae_layout = str(video_vae_layout)
-        if self.video_vae_layout not in {
-            "pixel",
-            "robotwin_latent_tshape",
-            "robotwin_multiview_tokens",
-            "robotwin_packed_multiview",
-        }:
-            raise ValueError(
-                "`video_vae_layout` must be 'pixel', 'robotwin_latent_tshape', "
-                "'robotwin_multiview_tokens', or 'robotwin_packed_multiview', "
-                f"got {self.video_vae_layout!r}."
-            )
-        self.robotwin_latent_tshape_head_size = self._validate_robotwin_view_size(
+        self.robotwin_latent_tshape_head_size = self._parse_robotwin_view_size(
             "robotwin_latent_tshape_head_size", robotwin_latent_tshape_head_size
         )
-        self.robotwin_latent_tshape_wrist_size = self._validate_robotwin_view_size(
+        self.robotwin_latent_tshape_wrist_size = self._parse_robotwin_view_size(
             "robotwin_latent_tshape_wrist_size", robotwin_latent_tshape_wrist_size
         )
         self.latent_tshape_premerged_input = bool(latent_tshape_premerged_input)
         self.latent_tshape_vae_premerge = bool(latent_tshape_vae_premerge)
-        if self.latent_tshape_vae_premerge and self.video_vae_layout != "robotwin_latent_tshape":
-            raise ValueError("latent_tshape_vae_premerge requires robotwin_latent_tshape")
-        if self.latent_tshape_premerged_input and self.video_vae_layout not in {
-            "robotwin_latent_tshape", "robotwin_packed_multiview"
-        }:
-            raise ValueError("Premerged input requires latent-T or packed multiview")
         self.latent_tshape_head_resize_mode = str(latent_tshape_head_resize_mode)
-        if self.latent_tshape_head_resize_mode not in {"cover_crop", "direct_resize"}:
-            raise ValueError(
-                "`latent_tshape_head_resize_mode` must be 'cover_crop' or "
-                f"'direct_resize', got {self.latent_tshape_head_resize_mode!r}."
-            )
         self.latent_tshape_future_wrist_loss_weight = float(
             latent_tshape_future_wrist_loss_weight
         )
-        if (
-            not math.isfinite(self.latent_tshape_future_wrist_loss_weight)
-            or self.latent_tshape_future_wrist_loss_weight < 0.0
-        ):
-            raise ValueError(
-                "`latent_tshape_future_wrist_loss_weight` must be finite and >= 0, "
-                f"got {self.latent_tshape_future_wrist_loss_weight}."
-            )
         self.latent_tshape_head_reads_wrist0 = bool(
             latent_tshape_head_reads_wrist0
         )
@@ -368,104 +252,29 @@ class FastWAM(torch.nn.Module):
         )
         head_h, head_w = self.robotwin_latent_tshape_head_size
         wrist_h, wrist_w = self.robotwin_latent_tshape_wrist_size
-        if (head_h, head_w) != (2 * wrist_h, 2 * wrist_w):
-            raise ValueError(
-                "The latent T-shape requires head H/W to be exactly twice wrist H/W "
-                "so two wrist latents tile under the head latent; got "
-                f"head={(head_h, head_w)} wrist={(wrist_h, wrist_w)}."
-            )
         latent_h, latent_w = self._robotwin_latent_tshape_spatial_size()
-        patch_size = tuple(int(value) for value in self.video_expert.patch_size[-2:])
-        if latent_h % patch_size[0] != 0 or latent_w % patch_size[1] != 0:
-            raise ValueError(
-                "The composed latent T-shape must be divisible by the video DiT "
-                f"spatial patch size {patch_size}, got {(latent_h, latent_w)}."
-            )
         wrist_view_mask_prob = float(wrist_view_mask_prob)
-        if not 0.0 <= wrist_view_mask_prob <= 1.0:
-            raise ValueError(
-                "`wrist_view_mask_prob` must be in [0, 1], got "
-                f"{wrist_view_mask_prob}."
-            )
-        if self.video_vae_layout != "robotwin_latent_tshape" and wrist_view_mask_prob != 0.0:
-            raise ValueError(
-                "`wrist_view_mask_prob` is only valid with "
-                "`video_vae_layout='robotwin_latent_tshape'`."
-            )
         self.wrist_view_mask_prob = wrist_view_mask_prob
 
-        self.robotwin_multiview_head_size = self._validate_robotwin_view_size(
+        self.robotwin_multiview_head_size = self._parse_robotwin_view_size(
             "robotwin_multiview_head_size", robotwin_multiview_head_size
         )
-        self.robotwin_multiview_wrist_size = self._validate_robotwin_view_size(
+        self.robotwin_multiview_wrist_size = self._parse_robotwin_view_size(
             "robotwin_multiview_wrist_size", robotwin_multiview_wrist_size
         )
         multiview_head_h, multiview_head_w = self.robotwin_multiview_head_size
         multiview_wrist_h, multiview_wrist_w = self.robotwin_multiview_wrist_size
-        if (multiview_head_h, multiview_head_w) != (
-            2 * multiview_wrist_h,
-            2 * multiview_wrist_w,
-        ):
-            raise ValueError(
-                "The multiview token canvas requires head H/W to be exactly twice "
-                "wrist H/W; got "
-                f"head={self.robotwin_multiview_head_size} "
-                f"wrist={self.robotwin_multiview_wrist_size}."
-            )
         if self.video_vae_layout == "robotwin_multiview_tokens":
-            view_embedding = getattr(self.video_expert, "view_embedding", None)
-            num_view_embeddings = int(
-                getattr(self.video_expert, "num_view_embeddings", 0)
-            )
-            if view_embedding is None or num_view_embeddings < 3:
-                raise ValueError(
-                    "`robotwin_multiview_tokens` requires "
-                    "video_dit_config.num_view_embeddings >= 3."
-                )
             latent_h, latent_w = self._robotwin_multiview_spatial_size()
-            if latent_h % patch_size[0] != 0 or latent_w % patch_size[1] != 0:
-                raise ValueError(
-                    "The multiview latent canvas must be divisible by the video DiT "
-                    f"spatial patch size {patch_size}, got {(latent_h, latent_w)}."
-                )
 
-        self.robotwin_packed_head_size = self._validate_robotwin_view_size(
+        self.robotwin_packed_head_size = self._parse_robotwin_view_size(
             "robotwin_packed_head_size", robotwin_packed_head_size
         )
-        self.robotwin_packed_wrist_size = self._validate_robotwin_view_size(
+        self.robotwin_packed_wrist_size = self._parse_robotwin_view_size(
             "robotwin_packed_wrist_size", robotwin_packed_wrist_size
         )
         self.packed_head_reads_wrist0 = bool(packed_head_reads_wrist0)
         self.packed_wrist_encode_separately = bool(packed_wrist_encode_separately)
-        if self.video_vae_layout == "robotwin_packed_multiview":
-            if getattr(self.video_expert, "view_embedding", None) is not None:
-                raise ValueError(
-                    "First-round packed multiview requires no View ID; set "
-                    "`video_dit_config.num_view_embeddings=0`."
-                )
-            factor = int(self.vae.upsampling_factor)
-            packed_sizes = (
-                *self.robotwin_packed_head_size,
-                self.robotwin_packed_wrist_size[0],
-                2 * self.robotwin_packed_wrist_size[1],
-            )
-            if any(size % factor != 0 for size in packed_sizes):
-                raise ValueError(
-                    "Packed head and concatenated wrist-strip sizes must be divisible "
-                    f"by VAE factor {factor}, got {packed_sizes}."
-                )
-            packed_latent_sizes = tuple(size // factor for size in packed_sizes)
-            if any(
-                size % patch != 0
-                for size, patch in zip(
-                    packed_latent_sizes,
-                    (patch_size[0], patch_size[1], patch_size[0], patch_size[1]),
-                )
-            ):
-                raise ValueError(
-                    "Packed head/wrist latent sizes must be divisible by the DiT "
-                    f"patch size {patch_size}, got {packed_latent_sizes}."
-                )
 
         self.wrist_attention_gate_ramp_steps = int(wrist_attention_gate_ramp_steps)
         self.wrist_video_loss_ramp_steps = int(wrist_video_loss_ramp_steps)
@@ -473,83 +282,14 @@ class FastWAM(torch.nn.Module):
         self.head_only_replay_start_ratio = float(head_only_replay_start_ratio)
         self.head_only_replay_end_ratio = float(head_only_replay_end_ratio)
         self.head_only_replay_decay_steps = int(head_only_replay_decay_steps)
-        for name, value in (
-            ("wrist_attention_gate_ramp_steps", self.wrist_attention_gate_ramp_steps),
-            ("wrist_video_loss_ramp_steps", self.wrist_video_loss_ramp_steps),
-            ("head_only_replay_decay_steps", self.head_only_replay_decay_steps),
-        ):
-            if value < 0:
-                raise ValueError(f"`{name}` must be >= 0, got {value}.")
-        if self.wrist_video_loss_max_weight < 0.0:
-            raise ValueError(
-                "`wrist_video_loss_max_weight` must be >= 0, got "
-                f"{self.wrist_video_loss_max_weight}."
-            )
-        for name, value in (
-            ("head_only_replay_start_ratio", self.head_only_replay_start_ratio),
-            ("head_only_replay_end_ratio", self.head_only_replay_end_ratio),
-        ):
-            if not 0.0 <= value <= 1.0:
-                raise ValueError(f"`{name}` must be in [0, 1], got {value}.")
-        if self.video_vae_layout not in {
-            "robotwin_latent_tshape",
-            "robotwin_multiview_tokens",
-        } and any(
-            (self.wrist_attention_gate_ramp_steps, self.wrist_video_loss_ramp_steps)
-        ):
-            raise ValueError(
-                "Wrist bridge schedules are only valid with "
-                "a separately encoded dense latent-T layout."
-            )
-        if self.video_vae_layout != "robotwin_multiview_tokens" and any(
-            (
-                self.head_only_replay_start_ratio,
-                self.head_only_replay_end_ratio,
-                self.head_only_replay_decay_steps,
-            )
-        ):
-            raise ValueError(
-                "Head-only replay remains specific to "
-                "`video_vae_layout='robotwin_multiview_tokens'`."
-            )
         self._training_progress_step = 0
         self._training_progress_total_steps = 0
 
         # Goal-image supervision (GoalWAM): supervise on goal frames instead of
         # dense future video, while keeping the Wan video base model.
         self.goal_enabled = bool(goal_enabled)
-        if self.goal_enabled and self.video_vae_layout in {
-            "robotwin_latent_tshape",
-            "robotwin_multiview_tokens",
-            "robotwin_packed_multiview",
-        }:
-            raise ValueError(
-                "Goal-image supervision is not implemented for separately encoded "
-                "RoboTwin views; use dense-video training for the multiview experiments."
-            )
-        if goal_targets not in ("short", "long", "both"):
-            raise ValueError(f"`goal_targets` must be one of short|long|both, got {goal_targets!r}")
-        if goal_encode_mode not in ("single_frame", "pseudo_video", "hybrid"):
-            raise ValueError(
-                f"`goal_encode_mode` must be one of single_frame|pseudo_video|hybrid, got {goal_encode_mode!r}"
-            )
         self.goal_targets = str(goal_targets)
         self.goal_encode_mode = str(goal_encode_mode)
-
-        # Long-goal RoPE temporal index (GoalWAM exp5, position-encoding ablation).
-        #   "arange"   -> the default naive temporal indices [0, 1, 2] for
-        #                 [obs, g_short, g_long] (long goal pinned at 2).
-        #   "distance" -> the long-goal latent's temporal index encodes its true
-        #                 distance to the trajectory end: round(Δframes / 16), where
-        #                 Δframes = (traj last frame − chunk last frame) and
-        #                 16 = global_sample_stride × action_video_freq_ratio × VAE
-        #                 temporal(4). The dataset precomputes the index and ships it
-        #                 as `sample['goal_long_rope_index']`. Only affects the goal
-        #                 path with a long target; obs/g_short keep 0/1.
-        if goal_long_rope_mode not in ("arange", "distance"):
-            raise ValueError(
-                f"`goal_long_rope_mode` must be one of arange|distance, got {goal_long_rope_mode!r}"
-            )
         self.goal_long_rope_mode = str(goal_long_rope_mode)
 
         # Long-goal loss down-weighting (GoalWAM exp: unequal short/long supervision).
@@ -560,10 +300,6 @@ class FastWAM(torch.nn.Module):
         # the long goal becomes an auxiliary signal instead of a co-equal target. Default
         # 1.0 -> unchanged. Only applied on the goal path when `goal_targets` includes long.
         goal_long_loss_weight = float(goal_long_loss_weight)
-        if goal_long_loss_weight < 0.0:
-            raise ValueError(
-                f"`goal_long_loss_weight` must be >= 0, got {goal_long_loss_weight}"
-            )
         self.goal_long_loss_weight = goal_long_loss_weight
 
         # Short-goal RoPE temporal index (GoalWAM exp: short-goal ⊕ dense-video joint).
@@ -577,10 +313,6 @@ class FastWAM(torch.nn.Module):
         #              goal path when `goal_targets` includes short.
         if goal_short_rope_index is not None:
             goal_short_rope_index = int(goal_short_rope_index)
-            if goal_short_rope_index < 0:
-                raise ValueError(
-                    f"`goal_short_rope_index` must be >= 0 or None, got {goal_short_rope_index}"
-                )
         self.goal_short_rope_index = goal_short_rope_index
 
         # Joint video/goal co-training (GoalWAM §3.2): per training step, route the
@@ -589,10 +321,6 @@ class FastWAM(torch.nn.Module):
         # steps routed to dense video; 0.0 -> pure goal (default, unchanged), 1.0 ->
         # pure dense video. Only meaningful when `goal_enabled=True`.
         goal_mix_video_ratio = float(goal_mix_video_ratio)
-        if not (0.0 <= goal_mix_video_ratio <= 1.0):
-            raise ValueError(
-                f"`goal_mix_video_ratio` must be in [0, 1], got {goal_mix_video_ratio}"
-            )
         self.goal_mix_video_ratio = goal_mix_video_ratio
         # Deterministic dither accumulator: realizes the ratio exactly over time and
         # advances identically across ranks (plain float, not a checkpointed buffer).
@@ -667,10 +395,6 @@ class FastWAM(torch.nn.Module):
         head_only_replay_end_ratio: float = 0.0,
         head_only_replay_decay_steps: int = 0,
     ):
-        if video_dit_config is None:
-            raise ValueError("`video_dit_config` is required for FastWAM.from_wan22_pretrained().")
-        if "text_dim" not in video_dit_config:
-            raise ValueError("`video_dit_config['text_dim']` is required for FastWAM.")
 
         components = load_wan22_ti2v_5b_components(
             device=device,
@@ -692,12 +416,6 @@ class FastWAM(torch.nn.Module):
             device=device,
             torch_dtype=torch_dtype,
         )
-        if int(action_expert.num_heads) != int(video_expert.num_heads):
-            raise ValueError("ActionDiT `num_heads` must match video expert for MoT mixed attention.")
-        if int(action_expert.attn_head_dim) != int(video_expert.attn_head_dim):
-            raise ValueError("ActionDiT `attn_head_dim` must match video expert for MoT mixed attention.")
-        if int(len(action_expert.blocks)) != int(len(video_expert.blocks)):
-            raise ValueError("ActionDiT `num_layers` must match video expert.")
 
         mot = MoT(
             mixtures={"video": video_expert, "action": action_expert},
@@ -797,11 +515,6 @@ class FastWAM(torch.nn.Module):
 
     @torch.no_grad()
     def encode_prompt(self, prompt: Union[str, Sequence[str]]):
-        if self.text_encoder is None or self.tokenizer is None:
-            raise ValueError(
-                "Prompt encoding requires loaded text encoder/tokenizer. "
-                "Set `load_text_encoder=true` or provide precomputed `context/context_mask`."
-            )
         ids, mask = self.tokenizer(prompt, return_mask=True, add_special_tokens=True)
         ids = ids.to(self.device)
         mask = mask.to(self.device, dtype=torch.bool)
@@ -817,10 +530,6 @@ class FastWAM(torch.nn.Module):
     def initialize_source_proprio_encoders_from_default(self) -> None:
         """Clone the default state encoder into every additional source encoder."""
         if self.proprio_encoder is None:
-            if self.source_proprio_encoders:
-                raise RuntimeError(
-                    "Source-specific state encoders exist while `proprio_encoder` is disabled."
-                )
             return
         for source in self.source_proprio_encoders:
             self.source_proprio_encoders[source].load_state_dict(
@@ -830,16 +539,9 @@ class FastWAM(torch.nn.Module):
     def _proprio_encoder_for_source(
         self, action_tokenizer_source: Optional[str]
     ) -> nn.Linear:
-        if self.proprio_encoder is None:
-            raise RuntimeError("`proprio_encoder` is disabled.")
         if action_tokenizer_source is None:
             return self.proprio_encoder
         source = str(action_tokenizer_source)
-        if source not in self.action_expert.action_tokenizer_sources:
-            raise ValueError(
-                f"Unknown state encoder source {source!r}; configured="
-                f"{self.action_expert.action_tokenizer_sources}"
-            )
         if source == self.action_expert.default_action_tokenizer_source:
             return self.proprio_encoder
         return self.source_proprio_encoders[source]
@@ -880,18 +582,10 @@ class FastWAM(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if self.proprio_encoder is None or proprio is None:
             return context, context_mask
-        if proprio.ndim != 2:
-            raise ValueError(f"`proprio` must be 2D [B, D], got shape {tuple(proprio.shape)}")
-        if self.proprio_dim is None or proprio.shape[1] != self.proprio_dim:
-            raise ValueError(
-                f"`proprio` last dim must be {self.proprio_dim}, got {proprio.shape[1]}"
-            )
         if proprio_dim_is_pad is not None:
             pad = torch.as_tensor(proprio_dim_is_pad, device=proprio.device, dtype=torch.bool)
             if pad.ndim == 1 and proprio.shape[0] == 1:
                 pad = pad.unsqueeze(0)
-            if pad.shape != proprio.shape:
-                raise ValueError('proprio_dim_is_pad must match current [B,D] state')
             proprio = proprio.masked_fill(pad, 0)
         proprio_token = self._encode_proprio_tokens(
             proprio.to(device=self.device, dtype=context.dtype),
@@ -919,11 +613,6 @@ class FastWAM(torch.nn.Module):
     @staticmethod
     def _resize_video_view(video: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
         """Resize [B,C,T,H,W] without mixing camera or temporal dimensions."""
-        if video.ndim != 5 or video.shape[1] != 3:
-            raise ValueError(
-                "A RoboTwin camera view must have shape [B,3,T,H,W], got "
-                f"{tuple(video.shape)}."
-            )
         batch_size, channels, num_frames, height, width = video.shape
         if (height, width) == tuple(size):
             return video
@@ -958,26 +647,9 @@ class FastWAM(torch.nn.Module):
                 self.robotwin_packed_wrist_size if packed
                 else self.robotwin_latent_tshape_wrist_size
             )
-            if head_w != 2 * wrist_w:
-                raise ValueError("Premerged T requires two wrists to span the head width")
-            if (
-                video.ndim != 5 or video.shape[1] != 3
-                or tuple(video.shape[-2:]) != (head_h + wrist_h, head_w)
-            ):
-                raise ValueError("Premerged T input must be [B,3,T,head_h+wrist_h,head_w]")
             return (
                 video[..., :head_h, :], video[..., head_h:, :wrist_w],
                 video[..., head_h:, wrist_w:],
-            )
-        if video.ndim != 6:
-            raise ValueError(
-                "Latent T-shape video must be 6D [B,3views,3,T,H,W], got "
-                f"{tuple(video.shape)}."
-            )
-        if video.shape[1] != 3 or video.shape[2] != 3:
-            raise ValueError(
-                "Latent T-shape expects views ordered as head/left-wrist/right-wrist "
-                f"with RGB channels, got {tuple(video.shape)}."
             )
         resize_view = (
             self._resize_video_view_cover_crop
@@ -1007,15 +679,8 @@ class FastWAM(torch.nn.Module):
 
     def _robotwin_latent_tshape_spatial_size(self) -> tuple[int, int]:
         factor = int(self.vae.upsampling_factor)
-        if factor <= 0:
-            raise ValueError(f"`vae.upsampling_factor` must be positive, got {factor}.")
         head_h, head_w = self.robotwin_latent_tshape_head_size
         wrist_h, wrist_w = self.robotwin_latent_tshape_wrist_size
-        if any(dim % factor != 0 for dim in (head_h, head_w, wrist_h, wrist_w)):
-            raise ValueError(
-                "Configured RoboTwin view sizes must be divisible by the VAE spatial "
-                f"factor {factor}."
-            )
         return head_h // factor + wrist_h // factor, head_w // factor
 
     def _robotwin_latent_tshape_patch_layout(
@@ -1030,11 +695,6 @@ class FastWAM(torch.nn.Module):
         wrist_patch_w = self.robotwin_latent_tshape_wrist_size[1] // factor // patch_w
         grid_h = head_patch_h + wrist_patch_h
         grid_w = head_patch_w
-        # An odd head patch width (D2 H352: 11 columns) has one patch spanning
-        # the wrist seam. It is still a Wrist key, never a Head key. Assign it
-        # to the right routing region; losses split the actual latents, not IDs.
-        if grid_w not in {2 * wrist_patch_w, 2 * wrist_patch_w + 1}:
-            raise ValueError("Wrist patch grid does not span the Head width")
         view_ids = torch.zeros((grid_h, grid_w), dtype=torch.long, device=device)
         view_ids[head_patch_h:, :wrist_patch_w] = 1
         view_ids[head_patch_h:, wrist_patch_w:] = 2
@@ -1055,10 +715,6 @@ class FastWAM(torch.nn.Module):
         """Expose optimizer-step progress to deterministic bridge schedules."""
         step = int(step)
         total_steps = int(total_steps)
-        if step < 0 or total_steps < 0:
-            raise ValueError(
-                f"Training progress must be non-negative, got {step}/{total_steps}."
-            )
         self._training_progress_step = step
         self._training_progress_total_steps = total_steps
 
@@ -1135,11 +791,6 @@ class FastWAM(torch.nn.Module):
     def _prepare_robotwin_multiview_views(
         self, video: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        if video.ndim != 6 or video.shape[1] != 3 or video.shape[2] != 3:
-            raise ValueError(
-                "Multiview-token video must be [B,3views,3,T,H,W] ordered as "
-                f"head/left-wrist/right-wrist, got {tuple(video.shape)}."
-            )
         head = self._resize_video_view_cover_crop(
             video[:, 0], self.robotwin_multiview_head_size
         )
@@ -1152,11 +803,6 @@ class FastWAM(torch.nn.Module):
         video: torch.Tensor, size: tuple[int, int]
     ) -> torch.Tensor:
         """Aspect-preserving cover resize + center crop for [B,C,T,H,W]."""
-        if video.ndim != 5 or video.shape[1] != 3:
-            raise ValueError(
-                "A RoboTwin camera view must have shape [B,3,T,H,W], got "
-                f"{tuple(video.shape)}."
-            )
         batch_size, channels, num_frames, height, width = video.shape
         target_h, target_w = size
         scale = max(float(target_h) / float(height), float(target_w) / float(width))
@@ -1197,15 +843,8 @@ class FastWAM(torch.nn.Module):
 
     def _robotwin_multiview_spatial_size(self) -> tuple[int, int]:
         factor = int(self.vae.upsampling_factor)
-        if factor <= 0:
-            raise ValueError(f"`vae.upsampling_factor` must be positive, got {factor}.")
         head_h, head_w = self.robotwin_multiview_head_size
         wrist_h, wrist_w = self.robotwin_multiview_wrist_size
-        if any(dim % factor != 0 for dim in (head_h, head_w, wrist_h, wrist_w)):
-            raise ValueError(
-                "Configured multiview sizes must be divisible by the VAE spatial "
-                f"factor {factor}."
-            )
         return head_h // factor + wrist_h // factor, head_w // factor
 
     @torch.no_grad()
@@ -1219,34 +858,10 @@ class FastWAM(torch.nn.Module):
             torch.cat([left, right], dim=0), tiled=tiled
         )
         left_latents, right_latents = wrist_latents.split(batch_size, dim=0)
-        if head_latents.shape[:3] != left_latents.shape[:3] or (
-            left_latents.shape[:3] != right_latents.shape[:3]
-        ):
-            raise ValueError(
-                "Per-view VAE outputs disagree in batch/channel/time dimensions: "
-                f"head={tuple(head_latents.shape)} left={tuple(left_latents.shape)} "
-                f"right={tuple(right_latents.shape)}."
-            )
-        if head_latents.shape[-2:] != (
-            2 * left_latents.shape[-2],
-            2 * left_latents.shape[-1],
-        ) or left_latents.shape[-2:] != right_latents.shape[-2:]:
-            raise ValueError(
-                "Per-view VAE outputs cannot form the aligned multiview canvas: "
-                f"head={tuple(head_latents.shape[-2:])} "
-                f"left={tuple(left_latents.shape[-2:])} "
-                f"right={tuple(right_latents.shape[-2:])}."
-            )
         latents = torch.cat(
             [head_latents, torch.cat([left_latents, right_latents], dim=-1)],
             dim=-2,
         )
-        expected_hw = self._robotwin_multiview_spatial_size()
-        if tuple(latents.shape[-2:]) != expected_hw:
-            raise ValueError(
-                "Multiview latent canvas mismatch: expected "
-                f"{expected_hw}, got {tuple(latents.shape[-2:])}."
-            )
         return latents
 
     def _robotwin_multiview_patch_layout(
@@ -1260,11 +875,6 @@ class FastWAM(torch.nn.Module):
         wrist_patch_w = self.robotwin_multiview_wrist_size[1] // factor // patch_w
         grid_h = head_patch_h + wrist_patch_h
         grid_w = head_patch_w
-        if grid_w != 2 * wrist_patch_w:
-            raise ValueError(
-                "Aligned multiview patch grid requires two wrists to span head width: "
-                f"head_w={grid_w} wrist_w={wrist_patch_w}."
-            )
         view_ids = torch.zeros((grid_h, grid_w), dtype=torch.long, device=device)
         view_ids[head_patch_h:, :wrist_patch_w] = 1
         view_ids[head_patch_h:, wrist_patch_w:] = 2
@@ -1292,11 +902,6 @@ class FastWAM(torch.nn.Module):
         if self.latent_tshape_premerged_input:
             head, left, right = self._prepare_robotwin_views(video)
             return head, torch.cat([left[:, :, :1], right[:, :, :1]], dim=-1)
-        if video.ndim != 6 or video.shape[1] != 3 or video.shape[2] != 3:
-            raise ValueError(
-                "Packed-multiview video must be [B,3views,3,T,H,W] ordered as "
-                f"head/left-wrist/right-wrist, got {tuple(video.shape)}."
-            )
         head = self._resize_video_view_cover_crop(
             video[:, 0], self.robotwin_packed_head_size
         )
@@ -1327,34 +932,6 @@ class FastWAM(torch.nn.Module):
             wrist_latents = torch.cat([left_latents, right_latents], dim=-1)
         else:
             wrist_latents = self._encode_video_latents(wrist0, tiled=tiled)
-        if head_latents.shape[:2] != wrist_latents.shape[:2]:
-            raise ValueError(
-                "Packed Head/Wrist VAE outputs disagree in batch/channel dimensions: "
-                f"head={tuple(head_latents.shape)} wrist={tuple(wrist_latents.shape)}."
-            )
-        if wrist_latents.shape[2] != 1:
-            raise ValueError(
-                "Observation-only Wrist encode must yield one latent frame, got "
-                f"{tuple(wrist_latents.shape)}."
-            )
-        factor = int(self.vae.upsampling_factor)
-        expected_head_hw = tuple(
-            size // factor for size in self.robotwin_packed_head_size
-        )
-        expected_wrist_hw = (
-            self.robotwin_packed_wrist_size[0] // factor,
-            2 * self.robotwin_packed_wrist_size[1] // factor,
-        )
-        if tuple(head_latents.shape[-2:]) != expected_head_hw:
-            raise ValueError(
-                "Packed Head latent shape mismatch: expected "
-                f"{expected_head_hw}, got {tuple(head_latents.shape[-2:])}."
-            )
-        if tuple(wrist_latents.shape[-2:]) != expected_wrist_hw:
-            raise ValueError(
-                "Packed Wrist-strip latent shape mismatch: expected "
-                f"{expected_wrist_hw}, got {tuple(wrist_latents.shape[-2:])}."
-            )
         return head_latents, wrist_latents
 
     def _robotwin_packed_spatial_layout(
@@ -1369,11 +946,6 @@ class FastWAM(torch.nn.Module):
         wrist_grid_w = (
             2 * self.robotwin_packed_wrist_size[1] // factor // patch_w
         )
-        if wrist_grid_w > head_grid_w:
-            raise ValueError(
-                "Packed Wrist strip cannot be wider than Head under R1 coordinates: "
-                f"head={head_grid_w}, wrist={wrist_grid_w}."
-            )
         wrist_col_offset = (head_grid_w - wrist_grid_w) // 2
         head_rows = torch.arange(head_grid_h, device=device).view(-1, 1).expand(
             head_grid_h, head_grid_w
@@ -1440,25 +1012,6 @@ class FastWAM(torch.nn.Module):
             )
             left_latents, right_latents = wrist_latents.split(batch_size, dim=0)
 
-        if head_latents.shape[:3] != left_latents.shape[:3] or (
-            left_latents.shape[:3] != right_latents.shape[:3]
-        ):
-            raise ValueError(
-                "Per-view VAE outputs disagree in batch/channel/time dimensions: "
-                f"head={tuple(head_latents.shape)} left={tuple(left_latents.shape)} "
-                f"right={tuple(right_latents.shape)}."
-            )
-        if head_latents.shape[-2:] != (
-            2 * left_latents.shape[-2],
-            2 * left_latents.shape[-1],
-        ) or left_latents.shape[-2:] != right_latents.shape[-2:]:
-            raise ValueError(
-                "Per-view VAE outputs cannot form the requested T-shape: "
-                f"head={tuple(head_latents.shape[-2:])} "
-                f"left={tuple(left_latents.shape[-2:])} "
-                f"right={tuple(right_latents.shape[-2:])}."
-            )
-
         if wrist_mask is None:
             wrist_mask = (
                 self._sample_wrist_view_mask(batch_size, head_latents.device)
@@ -1469,11 +1022,6 @@ class FastWAM(torch.nn.Module):
             wrist_mask = torch.as_tensor(
                 wrist_mask, device=head_latents.device, dtype=torch.bool
             ).reshape(-1)
-            if wrist_mask.numel() != batch_size:
-                raise ValueError(
-                    "`wrist_mask` must have one boolean per sample, got "
-                    f"{wrist_mask.numel()} for batch_size={batch_size}."
-                )
         # One sample-level decision covers both wrist views and every latent time.
         # Thus the observed first latent and all future targets have the same views.
         keep_wrist = (~wrist_mask).view(batch_size, 1, 1, 1, 1)
@@ -1482,12 +1030,6 @@ class FastWAM(torch.nn.Module):
 
         bottom = torch.cat([left_latents, right_latents], dim=-1)
         latent_tshape = torch.cat([head_latents, bottom], dim=-2)
-        expected_hw = self._robotwin_latent_tshape_spatial_size()
-        if tuple(latent_tshape.shape[-2:]) != expected_hw:
-            raise ValueError(
-                "Latent T-shape spatial contract mismatch: expected "
-                f"{expected_hw}, got {tuple(latent_tshape.shape[-2:])}."
-            )
         return latent_tshape, wrist_mask
 
     def _build_goal_latents(self, obs, g_short, g_long, tiled: bool = False):
@@ -1505,8 +1047,6 @@ class FastWAM(torch.nn.Module):
             futures.append(g_short)
         if targets in ("long", "both"):
             futures.append(g_long)
-        if not futures:
-            raise ValueError(f"no goal targets selected for goal_targets={targets!r}")
 
         if mode == "pseudo_video":
             # [obs, f0 x4, f1 x4, ...] -> one VAE pass -> 1 + len(futures) latents.
@@ -1532,8 +1072,6 @@ class FastWAM(torch.nn.Module):
             for f in futures[1:]:
                 lats.append(self._encode_video_latents(f.unsqueeze(2), tiled=tiled))
             return torch.cat(lats, dim=2)
-
-        raise ValueError(f"unknown goal_encode_mode={mode!r}")
 
     def _route_use_video_path(self) -> bool:
         """Joint video/goal co-training router (GoalWAM §3.2).
@@ -1581,17 +1119,6 @@ class FastWAM(torch.nn.Module):
         }:
             if input_image.ndim == 4:
                 input_image = input_image.unsqueeze(0)
-            if (
-                input_image.ndim != 5
-                or input_image.shape[0] != 1
-                or input_image.shape[1] != 3
-                or input_image.shape[2] != 3
-            ):
-                raise ValueError(
-                    "`input_image` must have shape [1,3views,3,H,W] or "
-                    "[3views,3,H,W] for separate-view inference, got "
-                    f"{tuple(input_image.shape)}."
-                )
             video = input_image.to(device=self.device).unsqueeze(3)
             if self.video_vae_layout == "robotwin_latent_tshape":
                 z, _ = self._encode_robotwin_latent_tshape(
@@ -1603,10 +1130,6 @@ class FastWAM(torch.nn.Module):
             return self._encode_robotwin_multiview_tokens(video, tiled=tiled)
         if input_image.ndim == 3:
             input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(
-                f"`input_image` must have shape [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}"
-            )
         image = input_image.to(device=self.device)[0].unsqueeze(1)
         z = self.vae.encode([image], device=self.device, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride)
         if isinstance(z, list):
@@ -1631,22 +1154,10 @@ class FastWAM(torch.nn.Module):
                 latents, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride
             )
         if self.video_vae_layout == "robotwin_latent_tshape" and self.latent_tshape_vae_premerge:
-            if latents.ndim != 5 or tuple(latents.shape[-2:]) != self._robotwin_latent_tshape_spatial_size():
-                raise ValueError("Invalid premerged T-shape latent canvas")
             return self._decode_latents_tensor(
                 latents, tiled=tiled, tile_size=tile_size, tile_stride=tile_stride
             )
         is_multiview = self.video_vae_layout == "robotwin_multiview_tokens"
-        expected_hw = (
-            self._robotwin_multiview_spatial_size()
-            if is_multiview
-            else self._robotwin_latent_tshape_spatial_size()
-        )
-        if latents.ndim != 5 or tuple(latents.shape[-2:]) != expected_hw:
-            raise ValueError(
-                "Cannot decode separate-view latent canvas with shape "
-                f"{tuple(latents.shape)}; expected [B,C,T,{expected_hw[0]},{expected_hw[1]}]."
-            )
         head_size = (
             self.robotwin_multiview_head_size
             if is_multiview
@@ -1693,8 +1204,6 @@ class FastWAM(torch.nn.Module):
         if self.latent_tshape_premerged_input:
             if input_image.ndim == 3:
                 input_image = input_image.unsqueeze(0)
-            if input_image.ndim != 4 or input_image.shape[0] != 1:
-                raise ValueError("Premerged inference requires [1,3,H,W] or [3,H,W]")
             self._prepare_robotwin_views(input_image.unsqueeze(2))
             if self.video_vae_layout == "robotwin_packed_multiview":
                 factor = int(self.vae.upsampling_factor)
@@ -1709,17 +1218,6 @@ class FastWAM(torch.nn.Module):
         }:
             if input_image.ndim == 4:
                 input_image = input_image.unsqueeze(0)
-            if (
-                input_image.ndim != 5
-                or input_image.shape[0] != 1
-                or input_image.shape[1] != 3
-                or input_image.shape[2] != 3
-            ):
-                raise ValueError(
-                    "`input_image` must have shape [1,3views,3,H,W] or "
-                    "[3views,3,H,W] for separate-view inference, got "
-                    f"{tuple(input_image.shape)}."
-                )
             if self.video_vae_layout == "robotwin_multiview_tokens":
                 latent_h, latent_w = self._robotwin_multiview_spatial_size()
             elif self.video_vae_layout == "robotwin_packed_multiview":
@@ -1734,16 +1232,7 @@ class FastWAM(torch.nn.Module):
 
         if input_image.ndim == 3:
             input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(
-                f"`input_image` must have shape [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}"
-            )
         height, width = (int(input_image.shape[-2]), int(input_image.shape[-1]))
-        if height % 16 != 0 or width % 16 != 0:
-            raise ValueError(
-                "`input_image` must be resized before infer, expected multiples of "
-                f"16 but got HxW=({height},{width})"
-            )
         return (
             input_image,
             height // int(self.vae.upsampling_factor),
@@ -1753,121 +1242,31 @@ class FastWAM(torch.nn.Module):
     def build_inputs(self, sample, tiled: bool = False):
         video = sample.get("video")
         precomputed_video_latents = sample.get("video_latents")
-        if (video is None) == (precomputed_video_latents is None):
-            raise ValueError(
-                "FastWAM training requires exactly one of `sample['video']` or "
-                "`sample['video_latents']`."
-            )
-        if "context" not in sample or "context_mask" not in sample:
-            raise ValueError(
-                "FastWAM training requires `sample['context']` and `sample['context_mask']`."
-            )
         context = sample["context"]
         context_mask = sample["context_mask"]
         proprio = sample.get("proprio", None)
         if precomputed_video_latents is not None:
-            if self.video_vae_layout != "pixel":
-                raise ValueError(
-                    "Precomputed video latents currently support only "
-                    f"`video_vae_layout='pixel'`, got {self.video_vae_layout!r}."
-                )
-            if self.goal_enabled:
-                raise ValueError(
-                    "Precomputed dense-video latents are incompatible with goal routing."
-                )
-            if precomputed_video_latents.ndim != 5:
-                raise ValueError(
-                    "`sample['video_latents']` must be 5D [B,C,T,H,W], got "
-                    f"{tuple(precomputed_video_latents.shape)}."
-                )
-            if precomputed_video_latents.dtype != torch.bfloat16:
-                raise ValueError(
-                    "Precomputed video latents must preserve frozen-VAE BF16 bits, "
-                    f"got dtype={precomputed_video_latents.dtype}."
-                )
             batch_size = int(precomputed_video_latents.shape[0])
-            expected_channels = int(getattr(self.vae.model, "z_dim", 16))
-            if int(precomputed_video_latents.shape[1]) != expected_channels:
-                raise ValueError(
-                    "Precomputed video latent channel mismatch: "
-                    f"got {precomputed_video_latents.shape[1]}, "
-                    f"expected {expected_channels}."
-                )
             temporal_factor = int(self.vae.temporal_downsample_factor)
             num_frames = (
                 (int(precomputed_video_latents.shape[2]) - 1) * temporal_factor + 1
             )
         elif self.latent_tshape_premerged_input:
-            self._prepare_robotwin_views(video)  # validate the storage canvas
             batch_size, _, num_frames, _, _ = video.shape
         elif self.video_vae_layout in {
             "robotwin_latent_tshape",
             "robotwin_multiview_tokens",
             "robotwin_packed_multiview",
         }:
-            if video.ndim != 6 or video.shape[1] != 3 or video.shape[2] != 3:
-                raise ValueError(
-                    "`sample['video']` must be 6D [B,3views,3,T,H,W] for "
-                    "separately encoded multiview training, got "
-                    f"{tuple(video.shape)}."
-                )
             batch_size, _, _, num_frames, _, _ = video.shape
         else:
-            if video.ndim != 5:
-                raise ValueError(
-                    "`sample['video']` must be 5D [B,3,T,H,W], got shape "
-                    f"{tuple(video.shape)}"
-                )
-            if video.shape[1] != 3:
-                raise ValueError(
-                    "`sample['video']` channel dimension must be 3, got shape "
-                    f"{tuple(video.shape)}"
-                )
             batch_size, _, num_frames, height, width = video.shape
-            if height % 16 != 0 or width % 16 != 0:
-                raise ValueError(
-                    f"Video spatial dims must be multiples of 16, got H={height}, W={width}"
-                )
-        if num_frames % 4 != 1:
-            raise ValueError(f"Video T must satisfy T % 4 == 1, got T={num_frames}")
-        if num_frames <= 1:
-            raise ValueError(f"Video T must be > 1 for action-conditioned training, got T={num_frames}")
-
-        if "action" not in sample:
-            raise ValueError("`sample['action']` is required for FastWAM training.")
 
         action = sample["action"]
-        if action.ndim != 3:
-            raise ValueError(f"`sample['action']` must be 3D [B, T, a_dim], got shape {tuple(action.shape)}")
-        action_horizon = int(action.shape[1])
-        if action_horizon % (num_frames - 1) != 0:
-            raise ValueError(
-                f"`sample['action']` temporal dimension must be divisible by video transitions ({num_frames - 1}), got {action_horizon}"
-            )
 
         action_is_pad = sample.get("action_is_pad", None)
-        if action_is_pad is not None:
-            if action_is_pad.ndim != 2:
-                raise ValueError(
-                    f"`sample['action_is_pad']` must be 2D [B, T], got shape {tuple(action_is_pad.shape)}"
-                )
-            if action_is_pad.shape[0] != batch_size or action_is_pad.shape[1] != action_horizon:
-                raise ValueError(
-                    "`sample['action_is_pad']` shape mismatch: "
-                    f"got {tuple(action_is_pad.shape)} vs expected ({batch_size}, {action_horizon})"
-                )
 
         image_is_pad = sample.get("image_is_pad", None)
-        if image_is_pad is not None:
-            if image_is_pad.ndim != 2:
-                raise ValueError(
-                    f"`sample['image_is_pad']` must be 2D [B, T], got shape {tuple(image_is_pad.shape)}"
-                )
-            if image_is_pad.shape[0] != batch_size or image_is_pad.shape[1] != num_frames:
-                raise ValueError(
-                    "`sample['image_is_pad']` shape mismatch: "
-                    f"got {tuple(image_is_pad.shape)} vs expected ({batch_size}, {num_frames})"
-                )
 
         # uint8-on-GPU: dataset may ship video as uint8 [0,255] (4x smaller IPC);
         # decode to float [-1,1] on the GPU here. float input is passed through.
@@ -1886,10 +1285,6 @@ class FastWAM(torch.nn.Module):
         multiview_bridge_state = self._current_multiview_bridge_state()
         packed_wrist_latents = None
         if precomputed_video_latents is not None:
-            if not route_video:
-                raise RuntimeError(
-                    "Precomputed dense-video latents cannot enter the goal path."
-                )
             input_latents = precomputed_video_latents.to(
                 device=self.device,
                 dtype=self.torch_dtype,
@@ -1897,7 +1292,6 @@ class FastWAM(torch.nn.Module):
             )
             wrist_view_mask = None
         elif route_video:
-            assert input_video is not None
             if self.video_vae_layout == "robotwin_latent_tshape":
                 input_latents, wrist_view_mask = self._encode_robotwin_latent_tshape(
                     input_video,
@@ -1924,11 +1318,6 @@ class FastWAM(torch.nn.Module):
             # obs / g_short come from the clip's first / last frame; g_long is the
             # trajectory terminal frame the dataset attaches as `goal_image`.
             goal_image = sample.get("goal_image", None)
-            if goal_image is None:
-                raise ValueError(
-                    "`goal_enabled=True` requires `sample['goal_image']`. "
-                    "Set `data.*.goal_supervision=true` so the dataset emits it."
-                )
             goal_image = goal_image.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
             obs = input_video[:, :, 0]
             g_short = input_video[:, :, -1]
@@ -1969,11 +1358,6 @@ class FastWAM(torch.nn.Module):
 
             if want_long:
                 gli = sample.get("goal_long_rope_index", None)
-                if gli is None:
-                    raise ValueError(
-                        "`goal_long_rope_mode='distance'` requires `sample['goal_long_rope_index']`. "
-                        "Set `data.*.goal_supervision=true` so the dataset emits it."
-                    )
                 if ti is None:
                     ti = torch.arange(n_lat, device=self.device).unsqueeze(0).repeat(batch_size, 1)  # [B, f]
                 gli = gli.to(device=self.device).long().view(-1)  # [B]
@@ -1996,33 +1380,12 @@ class FastWAM(torch.nn.Module):
         if getattr(self.video_expert, "fuse_vae_embedding_in_latents", False):
             first_frame_latents = input_latents[:, :, 0:1]
             fuse_flag = True
-
-        if context.ndim != 3 or context_mask.ndim != 2:
-            raise ValueError(
-                f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
-            )
         context = context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
         context_mask = context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True)
         if self.proprio_encoder is not None:
-            if proprio is None:
-                raise ValueError("`sample['proprio']` is required when `proprio_dim` is enabled.")
-            if proprio.ndim != 3:
-                raise ValueError(f"`sample['proprio']` must be 3D [B, T, d], got shape {tuple(proprio.shape)}")
-            if proprio.shape[2] != self.proprio_dim:
-                raise ValueError(
-                    f"`sample['proprio']` last dim must be {self.proprio_dim}, got {proprio.shape[2]}"
-                )
             action_tokenizer_source = self._batch_action_tokenizer_source(
                 sample, batch_size
             )
-            if (
-                self.action_expert.action_tokenizer_sources
-                and action_tokenizer_source is None
-            ):
-                raise ValueError(
-                    "Source-specific state encoders are configured, but the batch "
-                    "does not contain `action_tokenizer_source`."
-                )
             proprio = proprio[:, 0, :] # [B, D]
             context, context_mask = self._append_proprio_to_context(
                 context=context,
@@ -2045,36 +1408,8 @@ class FastWAM(torch.nn.Module):
         camera_pose_delta = None
         camera_pose_valid = None
         if getattr(self.video_expert, "camera_pose_conditioning", False):
-            if self.video_vae_layout != "pixel":
-                raise ValueError(
-                    "Camera pose conditioning currently supports only the single-"
-                    "camera pixel VideoDiT path."
-                )
-            if not route_video:
-                raise ValueError(
-                    "Camera pose conditioning is not defined for goal-latent "
-                    "replacement."
-                )
             camera_pose_delta = sample.get("camera_pose_delta")
             camera_pose_valid = sample.get("camera_pose_valid")
-            if camera_pose_delta is None or camera_pose_valid is None:
-                raise ValueError(
-                    "Camera-pose-conditioned training requires batch keys "
-                    "camera_pose_delta and camera_pose_valid."
-                )
-            expected_pose_shape = (batch_size, num_frames, 4, 4)
-            if tuple(camera_pose_delta.shape) != expected_pose_shape:
-                raise ValueError(
-                    "camera_pose_delta/video shape mismatch: "
-                    f"got {tuple(camera_pose_delta.shape)}, expected "
-                    f"{expected_pose_shape}."
-                )
-            if tuple(camera_pose_valid.shape) != (batch_size, num_frames):
-                raise ValueError(
-                    "camera_pose_valid/video shape mismatch: "
-                    f"got {tuple(camera_pose_valid.shape)}, expected "
-                    f"({batch_size}, {num_frames})."
-                )
             camera_pose_delta = camera_pose_delta.to(
                 device=self.device,
                 dtype=torch.float32,
@@ -2149,17 +1484,8 @@ class FastWAM(torch.nn.Module):
         video_key_gate = torch.as_tensor(
             video_key_gate, device=device, dtype=torch.float32
         ).reshape(-1)
-        if video_key_gate.numel() != video_seq_len:
-            raise ValueError(
-                "`video_key_gate` must have one value per video token: "
-                f"got {video_key_gate.numel()} vs {video_seq_len}."
-            )
         if bool(torch.all(video_key_gate >= 1.0).item()):
             return mask
-        if bool(torch.any(video_key_gate < 0.0).item()) or bool(
-            torch.any(video_key_gate > 1.0).item()
-        ):
-            raise ValueError("`video_key_gate` values must lie in [0, 1].")
         additive = torch.zeros(mask.shape, dtype=torch.float32, device=device)
         additive.masked_fill_(~mask, float("-inf"))
         log_gate = torch.where(
@@ -2185,39 +1511,16 @@ class FastWAM(torch.nn.Module):
         be used by Wrist queries, but can never leak into either Head or Action.
         """
         meta = video_pre["meta"]
-        if not bool(meta.get("robotwin_latent_tshape_routed", False)):
-            raise ValueError(
-                "Dense-T routing requires `robotwin_latent_tshape` metadata."
-            )
         num_frames, grid_h, grid_w = (
             int(value) for value in meta["grid_size"]
         )
         tokens_per_frame = int(meta["tokens_per_frame"])
-        if tokens_per_frame != grid_h * grid_w:
-            raise ValueError(
-                "Dense-T patch metadata is inconsistent: "
-                f"tokens_per_frame={tokens_per_frame}, grid={(grid_h, grid_w)}."
-            )
         view_ids = torch.as_tensor(
             meta.get("latent_tshape_view_ids"), device=device, dtype=torch.long
         )
-        if tuple(view_ids.shape) != (grid_h, grid_w):
-            raise ValueError(
-                "Dense-T view IDs must match the patch grid: "
-                f"ids={tuple(view_ids.shape)}, grid={(grid_h, grid_w)}."
-            )
         per_frame_is_wrist = view_ids.reshape(-1) > 0
-        if not bool(per_frame_is_wrist.any().item()) or not bool(
-            (~per_frame_is_wrist).any().item()
-        ):
-            raise ValueError("Dense-T routing requires both Head and Wrist tokens.")
 
         video_seq_len = num_frames * tokens_per_frame
-        if int(video_pre["tokens"].shape[1]) != video_seq_len:
-            raise ValueError(
-                "Dense-T token metadata mismatch: "
-                f"tokens={video_pre['tokens'].shape[1]}, expected={video_seq_len}."
-            )
         total_seq_len = video_seq_len + int(action_seq_len)
         mask = torch.zeros(
             (total_seq_len, total_seq_len), dtype=torch.bool, device=device
@@ -2265,11 +1568,6 @@ class FastWAM(torch.nn.Module):
             mask[action_rows[:, None], w0_keys[None, :]] = False
 
         gate = float(meta.get("wrist_attention_gate", 1.0))
-        if not math.isfinite(gate) or not 0.0 <= gate <= 1.0:
-            raise ValueError(
-                "`wrist_attention_gate` must be finite and lie in [0, 1], "
-                f"got {gate}."
-            )
         if gate >= 1.0:
             return mask
 
@@ -2341,16 +1639,8 @@ class FastWAM(torch.nn.Module):
         fuse_vae_embedding_in_latents: bool,
     ) -> dict[str, Any]:
         """Patchify Head/Wrist separately and assemble [H0..Hn, W0]."""
-        if not fuse_vae_embedding_in_latents or not self.video_expert.seperated_timestep:
-            raise NotImplementedError(
-                "Packed multiview requires separated timestep with fused VAE latents."
-            )
-        if self.video_expert.action_conditioned:
-            raise NotImplementedError(
-                "Packed multiview does not support action-conditioned video cross-attention."
-            )
         head_latents, timestep, context_mask = (
-            self.video_expert._validate_forward_inputs(
+            self.video_expert._prepare_forward_inputs(
                 x=head_latents,
                 timestep=timestep,
                 context=context,
@@ -2358,16 +1648,6 @@ class FastWAM(torch.nn.Module):
                 action=None,
             )
         )
-        if wrist_latents.ndim != 5 or wrist_latents.shape[2] != 1:
-            raise ValueError(
-                "Packed Wrist latents must be [B,C,1,H,W], got "
-                f"{tuple(wrist_latents.shape)}."
-            )
-        if wrist_latents.shape[:2] != head_latents.shape[:2]:
-            raise ValueError(
-                "Packed Head/Wrist batch-channel mismatch: "
-                f"head={tuple(head_latents.shape)} wrist={tuple(wrist_latents.shape)}."
-            )
 
         head_patches = self.video_expert.patchify(head_latents)
         wrist_patches = self.video_expert.patchify(wrist_latents)
@@ -2378,17 +1658,8 @@ class FastWAM(torch.nn.Module):
         wrist_frames, wrist_grid_h, wrist_grid_w = (
             int(value) for value in wrist_patches.shape[2:]
         )
-        if wrist_frames != 1:
-            raise ValueError(
-                f"Packed Wrist patch stream must have one frame, got {wrist_frames}."
-            )
         spatial = self._robotwin_packed_spatial_layout(head_latents.device)
         head_tokens_per_frame = int(spatial["head_tokens_per_frame"])
-        wrist_token_count = int(spatial["wrist_tokens"])
-        if head_tokens_per_frame != head_grid_h * head_grid_w:
-            raise ValueError("Packed Head patch grid disagrees with configured layout.")
-        if wrist_token_count != wrist_grid_h * wrist_grid_w:
-            raise ValueError("Packed Wrist patch grid disagrees with configured layout.")
 
         head_tokens = rearrange(
             head_patches, "b c f h w -> b (f h w) c"
@@ -2514,18 +1785,6 @@ class FastWAM(torch.nn.Module):
         camera_pose_valid: Optional[torch.Tensor] = None,
     ) -> dict[str, Any]:
         if self.video_vae_layout == "robotwin_packed_multiview":
-            if camera_pose_delta is not None or camera_pose_valid is not None:
-                raise ValueError(
-                    "Packed multiview does not support camera pose conditioning."
-                )
-            if temporal_index is not None:
-                raise ValueError(
-                    "Packed multiview does not support custom temporal indices."
-                )
-            if packed_wrist_latents is None:
-                raise ValueError(
-                    "Packed multiview requires the current Wrist-strip latents."
-                )
             return self._packed_video_pre_dit(
                 head_latents=x,
                 wrist_latents=packed_wrist_latents,
@@ -2560,11 +1819,6 @@ class FastWAM(torch.nn.Module):
             _, grid_h, grid_w = (
                 int(value) for value in pre["meta"]["grid_size"]
             )
-            if tuple(view_ids.shape) != (grid_h, grid_w):
-                raise RuntimeError(
-                    "Latent-T physical layout disagrees with patchified grid: "
-                    f"layout={tuple(view_ids.shape)}, grid={(grid_h, grid_w)}."
-                )
             tokens_per_frame = int(pre["meta"]["tokens_per_frame"])
             num_latent_frames = int(pre["meta"]["grid_size"][0])
             wrist0_token_indices = layout["wrist_indices_per_frame"]
@@ -2602,8 +1856,6 @@ class FastWAM(torch.nn.Module):
             )
         if self.video_vae_layout == "robotwin_multiview_tokens":
             view_ids = pre["meta"]["spatial_view_ids"]
-            if view_ids is None:
-                raise RuntimeError("Multiview pre-DiT state is missing view IDs.")
             per_frame_gate = torch.ones(
                 view_ids.numel(), dtype=torch.float32, device=x.device
             )
@@ -2631,8 +1883,6 @@ class FastWAM(torch.nn.Module):
         combine them with the effective wrist loss weight; other layouts use the plain loss.
         """
         view_video_losses: dict[str, torch.Tensor] = {}
-        if "video_view_loss_mask" in sample and self.video_vae_layout != "robotwin_latent_tshape":
-            raise ValueError("Per-sample view supervision requires the dense latent T-shape path")
         if self.video_vae_layout in {
             "robotwin_latent_tshape",
             "robotwin_multiview_tokens",
@@ -2704,28 +1954,12 @@ class FastWAM(torch.nn.Module):
         # a weighted mean replaces the plain mean. Only used on the goal path, which
         # carries no per-latent padding, so it never combines with `image_is_pad`.
         if latent_step_weights is not None:
-            if image_is_pad is not None:
-                raise ValueError("`latent_step_weights` is incompatible with `image_is_pad`.")
             w = latent_step_weights.to(device=video_loss_token.device, dtype=video_loss_token.dtype)
-            if w.ndim != 1 or w.shape[0] != video_loss_token.shape[1]:
-                raise ValueError(
-                    "`latent_step_weights` shape mismatch: "
-                    f"weights={tuple(w.shape)}, loss steps={video_loss_token.shape[1]}."
-                )
             return (video_loss_token * w.unsqueeze(0)).sum(dim=1) / w.sum().clamp(min=1e-8)
         if image_is_pad is None:
             return video_loss_token.mean(dim=1)
 
         temporal_factor = int(self.vae.temporal_downsample_factor)
-        if temporal_factor <= 0:
-            raise ValueError(f"`vae.temporal_downsample_factor` must be positive, got {temporal_factor}.")
-        if image_is_pad.shape[1] < 1:
-            raise ValueError("`image_is_pad` must contain at least one frame.")
-        if (image_is_pad.shape[1] - 1) % temporal_factor != 0:
-            raise ValueError(
-                "Cannot align `image_is_pad` with video latent steps: "
-                f"num_frames={image_is_pad.shape[1]}, temporal_downsample_factor={temporal_factor}."
-            )
 
         tail_is_pad = image_is_pad[:, 1:]
         latent_tail_is_pad = tail_is_pad.view(image_is_pad.shape[0], -1, temporal_factor).all(dim=2)
@@ -2733,12 +1967,6 @@ class FastWAM(torch.nn.Module):
             video_is_pad = torch.cat([image_is_pad[:, :1], latent_tail_is_pad], dim=1)
         else:
             video_is_pad = latent_tail_is_pad
-
-        if video_is_pad.shape[1] != video_loss_token.shape[1]:
-            raise ValueError(
-                "Video-loss mask shape mismatch: "
-                f"mask steps={video_is_pad.shape[1]}, loss steps={video_loss_token.shape[1]}."
-            )
 
         valid = (~video_is_pad).to(device=video_loss_token.device, dtype=video_loss_token.dtype)
         valid_sum = valid.sum(dim=1).clamp(min=1.0)
@@ -2754,26 +1982,8 @@ class FastWAM(torch.nn.Module):
     ) -> torch.Tensor:
         """Combine per-view losses while keeping weight=0 exactly Head-only."""
         weight = float(wrist_loss_weight)
-        if not math.isfinite(weight) or weight < 0.0:
-            raise ValueError(
-                "`wrist_loss_weight` must be finite and >= 0, "
-                f"got {weight}."
-            )
-        if not (
-            head_loss.shape == left_wrist_loss.shape == right_wrist_loss.shape
-        ):
-            raise ValueError(
-                "Per-view video losses must have identical shapes: "
-                f"head={tuple(head_loss.shape)}, "
-                f"left={tuple(left_wrist_loss.shape)}, "
-                f"right={tuple(right_wrist_loss.shape)}."
-            )
         if view_loss_mask is not None:
             mask = torch.as_tensor(view_loss_mask, device=head_loss.device, dtype=head_loss.dtype)
-            if tuple(mask.shape) != (head_loss.shape[0], 3):
-                raise ValueError("video_view_loss_mask must be [B,3] in head/left/right order")
-            if not bool(torch.isfinite(mask).all()) or bool(((mask < 0) | (mask > 1)).any()):
-                raise ValueError("video_view_loss_mask must be finite in [0,1]")
             head_loss = head_loss * mask[:, 0]
             left_wrist_loss = left_wrist_loss * mask[:, 1]
             right_wrist_loss = right_wrist_loss * mask[:, 2]
@@ -2870,11 +2080,6 @@ class FastWAM(torch.nn.Module):
         if not isinstance(source_is_ego, torch.Tensor):
             source_is_ego = torch.as_tensor(source_is_ego, dtype=torch.bool)
         source_is_ego = source_is_ego.to(device=device, dtype=torch.bool).reshape(-1)
-        if source_is_ego.numel() not in (1, int(batch_size)):
-            raise ValueError(
-                "`source_is_ego` must be scalar or have one value per sample: "
-                f"got {source_is_ego.numel()} values for batch_size={batch_size}."
-            )
         if source_is_ego.numel() == 1 and batch_size > 1:
             source_is_ego = source_is_ego.expand(batch_size)
         return source_is_ego
@@ -2886,11 +2091,6 @@ class FastWAM(torch.nn.Module):
         if source_is_ego is None:
             return False
         first = source_is_ego[0]
-        if not bool(torch.all(source_is_ego == first).item()):
-            raise ValueError(
-                "The legacy separate Ego action tokenizer requires a source-homogeneous "
-                "batch; configure source-specific `action_tokenizer_sources` for mixed batches."
-            )
         return bool(first.item())
 
     @staticmethod
@@ -2903,16 +2103,7 @@ class FastWAM(torch.nn.Module):
             return source
         if isinstance(source, (list, tuple)):
             values = tuple(str(value) for value in source)
-            if len(values) not in (1, int(batch_size)):
-                raise ValueError(
-                    "`action_tokenizer_source` must be scalar or have one value per "
-                    f"sample: got {len(values)} values for batch_size={batch_size}."
-                )
             return values
-        raise TypeError(
-            "`action_tokenizer_source` must be a string or a sequence of strings; "
-            f"got {type(source).__name__}."
-        )
 
     @staticmethod
     def _source_balanced_action_loss(
@@ -2953,18 +2144,6 @@ class FastWAM(torch.nn.Module):
         exact global source-balanced objective, even when a source is absent on a
         particular rank.
         """
-        if weighted_loss_per_sample.ndim != 1:
-            raise ValueError(
-                "weighted_loss_per_sample must be 1D [B], got "
-                f"{tuple(weighted_loss_per_sample.shape)}"
-            )
-        if len(route) != weighted_loss_per_sample.shape[0]:
-            raise ValueError(
-                "Source route length must match the local batch: "
-                f"route={len(route)} batch={weighted_loss_per_sample.shape[0]}"
-            )
-        if not sources:
-            raise ValueError("sources must be non-empty for source-balanced loss")
 
         local_sums = []
         local_counts = []
@@ -2994,8 +2173,6 @@ class FastWAM(torch.nn.Module):
         global_sums = global_stats[:num_sources]
         global_counts = global_stats[num_sources:]
         active = global_counts > 0
-        if not bool(active.any().item()):
-            raise ValueError(missing_source_error)
 
         weights = torch.tensor(
             [
@@ -3005,11 +2182,7 @@ class FastWAM(torch.nn.Module):
             device=weighted_loss_per_sample.device,
             dtype=weighted_loss_per_sample.dtype,
         )
-        if not bool(torch.isfinite(weights).all().item()) or bool((weights < 0).any().item()):
-            raise ValueError("source_weights must be finite and non-negative")
         active_weight_sum = weights[active].sum()
-        if not bool((active_weight_sum > 0).item()):
-            raise ValueError("At least one active source must have positive loss weight")
 
         safe_counts = global_counts.clamp(min=1.0)
         local_source_contributions = local_sums_tensor * float(world_size) / safe_counts
@@ -3034,17 +2207,11 @@ class FastWAM(torch.nn.Module):
         component_indices: Optional[Mapping[str, Sequence[int]]] = None,
     ) -> torch.Tensor:
         """Apply component weights, then average valid dimensions and time steps."""
-        if action_loss_elem.ndim != 3:
-            raise ValueError(f"action_loss_elem must be [B,T,C], got {tuple(action_loss_elem.shape)}")
         groups = resolve_action_components(action_loss_elem.shape[-1], num_arms, component_indices)
         configured = component_weights or {}
-        if set(configured) - set(groups):
-            raise ValueError(f"Unknown action components: {sorted(set(configured) - set(groups))}")
         dim_weights = action_loss_elem.new_ones(action_loss_elem.shape[-1])
         for name, indices in groups.items():
             weight = float(configured.get(name, 1.0))
-            if not math.isfinite(weight) or weight < 0:
-                raise ValueError(f"Action component weight {name!r} must be finite and non-negative")
             dim_weights[list(indices)] = weight
         valid = action_valid_mask(action_loss_elem, action_dim_valid, action_is_pad)
         return masked_action_mean(action_loss_elem * dim_weights, valid)
@@ -3059,13 +2226,9 @@ class FastWAM(torch.nn.Module):
         component_indices: Optional[Mapping[str, Sequence[int]]] = None,
     ) -> dict[str, torch.Tensor]:
         """Logging MSEs for each component; explicit layouts exclude absent groups."""
-        if action_loss_elem.ndim != 3:
-            raise ValueError(f"action_loss_elem must be [B,T,C], got {tuple(action_loss_elem.shape)}")
         batch_size = action_loss_elem.shape[0]
         if action_weight.ndim == 0 and batch_size == 1:
             action_weight = action_weight.reshape(1)
-        if tuple(action_weight.shape) != (batch_size,):
-            raise ValueError(f"action_weight must be [B], got {tuple(action_weight.shape)}")
         groups = resolve_action_components(action_loss_elem.shape[-1], num_arms, component_indices)
         valid = action_valid_mask(action_loss_elem, action_dim_valid, action_is_pad)
         metrics = {}
@@ -3082,10 +2245,6 @@ class FastWAM(torch.nn.Module):
         return metrics
 
     def training_loss(self, sample, tiled: bool = False):
-        for key in ("pixel_values", "action", "proprio", "context"):
-            value = sample.get(key)
-            if isinstance(value, torch.Tensor):
-                _finite_debug(f"sample.{key}", value)
         inputs = self.build_inputs(sample, tiled=tiled)
         input_latents = inputs["input_latents"]
         batch_size = input_latents.shape[0]
@@ -3119,17 +2278,7 @@ class FastWAM(torch.nn.Module):
             sample, batch_size
         )
         if legacy_ego_route is not None:
-            if action_tokenizer_source is not None:
-                raise ValueError(
-                    "Cannot combine legacy Ego action-tokenizer routing with "
-                    "named action_tokenizer_source routing."
-                )
             action_tokenizer_source = legacy_ego_route
-        if self.action_expert.action_tokenizer_sources and action_tokenizer_source is None:
-            raise ValueError(
-                "ActionDiT has source-specific tokenizers configured, but the batch "
-                "does not contain `action_tokenizer_source`."
-            )
         context = inputs["context"]
         context_mask = inputs["context_mask"]
         action = inputs["action"]
@@ -3142,9 +2291,6 @@ class FastWAM(torch.nn.Module):
             )
             action = torch.where(explicit_action_valid, action, 0.0)
         image_is_pad = inputs["image_is_pad"]
-        _finite_debug("inputs.input_latents", input_latents)
-        _finite_debug("inputs.context", context)
-        _finite_debug("inputs.action", action)
 
         noise_video = torch.randn_like(input_latents)
         timestep_video = self.train_video_scheduler.sample_training_t(
@@ -3154,8 +2300,6 @@ class FastWAM(torch.nn.Module):
         )
         latents = self.train_video_scheduler.add_noise(input_latents, noise_video, timestep_video)
         target_video = self.train_video_scheduler.training_target(input_latents, noise_video, timestep_video)
-        _finite_debug("noise.latents", latents)
-        _finite_debug("target.video", target_video)
 
         if inputs["first_frame_latents"] is not None:
             latents[:, :, 0:1] = inputs["first_frame_latents"]
@@ -3175,8 +2319,6 @@ class FastWAM(torch.nn.Module):
         if explicit_action_valid is not None:
             noisy_action = torch.where(explicit_action_valid, noisy_action, 0.0)
             target_action = torch.where(explicit_action_valid, target_action, 0.0)
-        _finite_debug("noise.action", noisy_action)
-        _finite_debug("target.action", target_action)
 
         video_pre = self._video_pre_dit(
             x=latents,
@@ -3200,14 +2342,8 @@ class FastWAM(torch.nn.Module):
             use_ego_action_tokenizer=use_ego_action_tokenizer,
             action_tokenizer_source=action_tokenizer_source,
         )
-        _finite_debug("video_pre.tokens", video_pre["tokens"])
-        _finite_debug("video_pre.t_mod", video_pre["t_mod"])
-        _finite_debug("action_pre.tokens", action_pre["tokens"])
-        _finite_debug("action_pre.t_mod", action_pre["t_mod"])
 
         tokens_out = self._mot_forward(video_pre, action_pre)
-        _finite_debug("mot.video", tokens_out["video"])
-        _finite_debug("mot.action", tokens_out["action"])
 
         pred_video = (
             self._packed_video_post_dit(tokens_out["video"], video_pre)
@@ -3216,8 +2352,6 @@ class FastWAM(torch.nn.Module):
         )
 
         pred_action = self.action_expert.post_dit(tokens_out["action"], action_pre)
-        _finite_debug("prediction.video", pred_video)
-        _finite_debug("prediction.action", pred_action)
 
         include_initial_video_step = inputs["first_frame_latents"] is None
         if inputs["first_frame_latents"] is not None:
@@ -3325,10 +2459,6 @@ class FastWAM(torch.nn.Module):
         pose_stationary = video_pre["meta"].get("camera_pose_stationary")
         if pose_stationary is not None:
             pose_valid = inputs.get("camera_pose_valid")
-            if pose_valid is None:
-                raise RuntimeError(
-                    "Camera pose stationary diagnostics require camera_pose_valid."
-                )
             future_valid = pose_valid[:, 1:]
             future_stationary = pose_stationary[:, 1:] & future_valid
             loss_dict["camera_pose_stationary_frame_fraction"] = float(
@@ -3432,8 +2562,6 @@ class FastWAM(torch.nn.Module):
                 else (1.0 if use_ego_action_tokenizer else 0.0)
             )
         if self.action_expert.action_tokenizer_sources:
-            if action_tokenizer_route is None:
-                raise RuntimeError("Missing normalized action-tokenizer route")
             for source in self.action_expert.action_tokenizer_sources:
                 loss_dict[f"action_tokenizer_{source}"] = (
                     sum(value == source for value in action_tokenizer_route)
@@ -3594,15 +2722,8 @@ class FastWAM(torch.nn.Module):
         decode_video: bool = True,
         proprio_dim_is_pad: Optional[torch.Tensor] = None,
     ) -> dict[str, Any]:
-        if self.video_vae_layout == "robotwin_packed_multiview":
-            raise NotImplementedError(
-                "First-round packed multiview is an action-policy interface; use "
-                "`infer_action` rather than joint future-video generation."
-            )
         self.eval()
         if test_action_with_infer_action:
-            if seed is None:
-                raise ValueError("`test_action_with_infer_action=True` requires non-null `seed`.")
             action_only_out = self.infer_action(
                 prompt=prompt,
                 input_image=input_image.clone(),
@@ -3619,28 +2740,10 @@ class FastWAM(torch.nn.Module):
             )["action"]
 
         input_image, latent_h, latent_w = self._prepare_inference_input_image(input_image)
-        temporal_factor = int(self.vae.temporal_downsample_factor)
-        checked_t = (num_video_frames - 1) // temporal_factor * temporal_factor + 1
-        if checked_t != num_video_frames:
-            raise ValueError(
-                f"`num_video_frames` must satisfy T % 4 == 1, got {num_video_frames}"
-            )
         if getattr(self.video_expert, "camera_pose_conditioning", False):
-            if camera_pose_delta is None:
-                raise ValueError(
-                    "Camera-pose-conditioned joint inference requires canonical "
-                    "camera_pose_delta=T_C0<-Ci for every generated RGB frame."
-                )
             camera_pose_delta = torch.as_tensor(camera_pose_delta)
             if camera_pose_delta.ndim == 3:
                 camera_pose_delta = camera_pose_delta.unsqueeze(0)
-            expected_pose_shape = (1, num_video_frames, 4, 4)
-            if tuple(camera_pose_delta.shape) != expected_pose_shape:
-                raise ValueError(
-                    "camera_pose_delta must align to generated RGB frames: "
-                    f"got {tuple(camera_pose_delta.shape)}, expected "
-                    f"{expected_pose_shape}."
-                )
             camera_pose_delta = camera_pose_delta.to(
                 device=self.device, dtype=torch.float32
             )
@@ -3652,34 +2755,16 @@ class FastWAM(torch.nn.Module):
                 camera_pose_valid = torch.as_tensor(camera_pose_valid)
                 if camera_pose_valid.ndim == 1:
                     camera_pose_valid = camera_pose_valid.unsqueeze(0)
-                if tuple(camera_pose_valid.shape) != (1, num_video_frames):
-                    raise ValueError(
-                        "camera_pose_valid must be [1,T] or [T], got "
-                        f"{tuple(camera_pose_valid.shape)}."
-                    )
                 camera_pose_valid = camera_pose_valid.to(
                     device=self.device, dtype=torch.bool
                 )
         if action is not None:
             if action.ndim == 2:
                 action = action.unsqueeze(0)
-            if action.ndim != 3 or action.shape[0] != 1 or action.shape[1] != action_horizon:
-                # NOTE: This enforces action condition to have the same shape as action horizon to predict, which may be unnecessary
-                raise ValueError(
-                    f"`action` must have shape [1, T, a_dim] or [T, a_dim], got {tuple(action.shape)} with action_horizon={action_horizon}"
-                )
             action = action.to(device=self.device, dtype=self.torch_dtype)
         if proprio is not None:
-            if self.proprio_dim is None:
-                raise ValueError("`proprio` was provided but `proprio_dim=None` so `proprio_encoder` is disabled.")
             if proprio.ndim == 1:
                 proprio = proprio.unsqueeze(0)
-            elif proprio.ndim == 2 and proprio.shape[0] == 1:
-                pass
-            else:
-                raise ValueError(f"`proprio` must be [D] or [1,D], got shape {tuple(proprio.shape)}")
-            if proprio.shape[1] != self.proprio_dim:
-                raise ValueError(f"`proprio` last dim must be {self.proprio_dim}, got {proprio.shape[1]}")
             proprio = proprio.to(device=self.device, dtype=self.torch_dtype)
 
         latent_t = (num_video_frames - 1) // self.vae.temporal_downsample_factor + 1
@@ -3709,25 +2794,14 @@ class FastWAM(torch.nn.Module):
         fuse_flag = bool(getattr(self.video_expert, "fuse_vae_embedding_in_latents", False))
 
         use_prompt = prompt is not None
-        use_context = context is not None or context_mask is not None
-        if use_prompt and use_context:
-            raise ValueError("`prompt` and `context/context_mask` are mutually exclusive.")
-        if not use_prompt and not use_context:
-            raise ValueError("Either `prompt` or both `context/context_mask` must be provided.")
 
         if use_prompt:
             context, context_mask = self.encode_prompt(prompt)
         else:
-            if context is None or context_mask is None:
-                raise ValueError("`context` and `context_mask` must be both provided together.")
             if context.ndim == 2:
                 context = context.unsqueeze(0)
             if context_mask.ndim == 1:
                 context_mask = context_mask.unsqueeze(0)
-            if context.ndim != 3 or context_mask.ndim != 2:
-                raise ValueError(
-                    f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
-                )
             context = context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
             context_mask = context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True)
         if proprio is not None:
@@ -3810,23 +2884,11 @@ class FastWAM(torch.nn.Module):
         proprio_dim_is_pad: Optional[torch.Tensor] = None,
     ) -> dict[str, Any]:
         self.eval()
-        if str(getattr(self.video_expert, "video_attention_mask_mode", "")) != "first_frame_causal":
-            raise ValueError(
-                "`infer_action` requires `video_attention_mask_mode='first_frame_causal'`."
-            )
 
         input_image, _, _ = self._prepare_inference_input_image(input_image)
         if proprio is not None:
-            if self.proprio_dim is None:
-                raise ValueError("`proprio` was provided but `proprio_dim=None` so `proprio_encoder` is disabled.")
             if proprio.ndim == 1:
                 proprio = proprio.unsqueeze(0)
-            elif proprio.ndim == 2 and proprio.shape[0] == 1:
-                pass
-            else:
-                raise ValueError(f"`proprio` must be [D] or [1,D], got shape {tuple(proprio.shape)}")
-            if proprio.shape[1] != self.proprio_dim:
-                raise ValueError(f"`proprio` last dim must be {self.proprio_dim}, got {proprio.shape[1]}")
             proprio = proprio.to(device=self.device, dtype=self.torch_dtype)
 
         generator = None if seed is None else torch.Generator(device=rand_device).manual_seed(seed)
@@ -3852,25 +2914,14 @@ class FastWAM(torch.nn.Module):
         fuse_flag = bool(getattr(self.video_expert, "fuse_vae_embedding_in_latents", False))
 
         use_prompt = prompt is not None
-        use_context = context is not None or context_mask is not None
-        if use_prompt and use_context:
-            raise ValueError("`prompt` and `context/context_mask` are mutually exclusive.")
-        if not use_prompt and not use_context:
-            raise ValueError("Either `prompt` or both `context/context_mask` must be provided.")
 
         if use_prompt:
             context, context_mask = self.encode_prompt(prompt)
         else:
-            if context is None or context_mask is None:
-                raise ValueError("`context` and `context_mask` must be both provided together.")
             if context.ndim == 2:
                 context = context.unsqueeze(0)
             if context_mask.ndim == 1:
                 context_mask = context_mask.unsqueeze(0)
-            if context.ndim != 3 or context_mask.ndim != 2:
-                raise ValueError(
-                    f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
-                )
             context = context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
             context_mask = context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True)
         if proprio is not None:
@@ -3906,8 +2957,7 @@ class FastWAM(torch.nn.Module):
             from .cuda_graph import (
                 VideoPrefillGraph,
                 pin_action_rope_freqs_to_gpu,
-                pin_video_rope_freqs_to_gpu,
-            )
+                pin_video_rope_freqs_to_gpu)
             prefill_key = (
                 tuple(int(s) for s in first_frame_latents.shape),
                 int(context.shape[1]),
@@ -4129,19 +3179,7 @@ class FastWAM(torch.nn.Module):
         skip_proprio_encoder: bool = False,
     ):
         payload = torch.load(path, map_location="cpu")
-        recorded_components = payload.get("action_component_indices")
-        if recorded_components is not None:
-            recorded_components = resolve_action_components(
-                self.action_expert.action_dim, component_indices=recorded_components
-            )
-            if recorded_components != getattr(self, "action_component_indices", None):
-                raise ValueError(
-                    "Checkpoint action components differ from the model configuration; "
-                    "configure the matching semantic layout or explicitly migrate the checkpoint."
-                )
         mot_skip_prefixes = tuple(str(prefix) for prefix in mot_skip_prefixes)
-        if any(not prefix for prefix in mot_skip_prefixes):
-            raise ValueError("Checkpoint MoT skip prefixes must be non-empty strings.")
         if "mot" in payload:
             checkpoint_mot = payload["mot"]
             skipped_mot_keys = sorted(
@@ -4149,286 +3187,15 @@ class FastWAM(torch.nn.Module):
                 for key in checkpoint_mot
                 if any(key.startswith(prefix) for prefix in mot_skip_prefixes)
             )
-            unmatched_prefixes = [
-                prefix
-                for prefix in mot_skip_prefixes
-                if not any(key.startswith(prefix) for key in checkpoint_mot)
-            ]
-            if unmatched_prefixes:
-                raise ValueError(
-                    "Checkpoint MoT skip prefixes matched no parameters: "
-                    f"{unmatched_prefixes}"
-                )
             load_mot = {
                 key: value
                 for key, value in checkpoint_mot.items()
                 if key not in skipped_mot_keys
             }
-            initialized_legacy_ego_tokenizer = bool(
-                self.action_expert.separate_ego_action_tokenizer
-                and "mixtures.action.ego_action_encoder.weight" not in checkpoint_mot
-            )
-            initialized_legacy_source_tokenizers = [
-                source
-                for source in self.action_expert.source_action_encoders
-                if (
-                    f"mixtures.action.source_action_encoders.{source}.weight"
-                    not in checkpoint_mot
-                )
-            ]
-            incompatible = self.mot.load_state_dict(load_mot, strict=False)
-            skipped_mot_key_set = set(skipped_mot_keys)
-            allowed_missing_keys = set()
-            video_expert = getattr(self, "video_expert", None)
-            if getattr(video_expert, "view_embedding", None) is not None:
-                allowed_missing_keys.add("mixtures.video.view_embedding.weight")
-            model_mot_state = self.mot.state_dict()
-            expected_camera_pose_keys = {
-                key for key in model_mot_state if _is_camera_pose_state_key(key)
-            }
-            checkpoint_camera_pose_keys = {
-                key for key in checkpoint_mot if _is_camera_pose_state_key(key)
-            }
-            missing_camera_pose_keys = {
-                key
-                for key in incompatible.missing_keys
-                if _is_camera_pose_state_key(key)
-            }
-            unexpected_camera_pose_keys = {
-                key
-                for key in incompatible.unexpected_keys
-                if _is_camera_pose_state_key(key)
-            }
-            if unexpected_camera_pose_keys:
-                raise ValueError(
-                    "Checkpoint contains camera-pose conditioner tensors but the "
-                    "current model has no matching topology; refusing to drop "
-                    f"trained conditioning state: {sorted(unexpected_camera_pose_keys)[:10]}"
-                )
-            if checkpoint_camera_pose_keys and missing_camera_pose_keys:
-                raise ValueError(
-                    "Checkpoint contains a partial camera-pose conditioner state: "
-                    f"present={len(checkpoint_camera_pose_keys)} "
-                    f"missing={len(missing_camera_pose_keys)}."
-                )
-            if expected_camera_pose_keys and not checkpoint_camera_pose_keys:
-                if missing_camera_pose_keys != expected_camera_pose_keys:
-                    raise ValueError(
-                        "Legacy checkpoint camera-pose absence contract is "
-                        "incomplete."
-                    )
-                final_keys = {
-                    key
-                    for key in expected_camera_pose_keys
-                    if key.endswith(
-                        (
-                            "camera_pose_conditioner.encoder.3.weight",
-                            "camera_pose_conditioner.encoder.3.bias",
-                        )
-                    )
-                }
-                if len(final_keys) != 2 or any(
-                    torch.count_nonzero(model_mot_state[key]).item() != 0
-                    for key in final_keys
-                ):
-                    raise ValueError(
-                        "Fresh camera-pose conditioner is not function preserving; "
-                        "its final linear layer must be exactly zero."
-                    )
-                allowed_missing_keys.update(missing_camera_pose_keys)
-            checkpoint_lora_keys = {
-                key
-                for key in checkpoint_mot
-                if key.endswith((".lora_A", ".lora_B"))
-            }
-            missing_lora_keys = {
-                key
-                for key in incompatible.missing_keys
-                if key.endswith((".lora_A", ".lora_B"))
-            }
-            if missing_lora_keys and checkpoint_lora_keys:
-                raise ValueError(
-                    "Checkpoint contains a partial LoRA state; refusing to mix "
-                    "checkpoint adapters with freshly initialized tensors. "
-                    f"present={len(checkpoint_lora_keys)} "
-                    f"missing={len(missing_lora_keys)} "
-                    f"sample={sorted(missing_lora_keys)[:10]}"
-                )
-            if missing_lora_keys:
-                # A normal frozen base has no LoRA tensors. Injection is function
-                # preserving because every B matrix starts at exactly zero; the A
-                # matrices are intentionally random and begin receiving gradients
-                # only after B's first update. Treat this complete absence as an
-                # explicit initialization mode, not as an unaudited missing-key
-                # warning.
-                nonzero_lora_b = [
-                    key
-                    for key, tensor in self.mot.state_dict().items()
-                    if key in missing_lora_keys
-                    and key.endswith(".lora_B")
-                    and torch.count_nonzero(tensor).item() != 0
-                ]
-                if nonzero_lora_b:
-                    raise ValueError(
-                        "Fresh LoRA initialization is not function preserving; "
-                        f"non-zero B tensors: {nonzero_lora_b[:10]}"
-                    )
-                allowed_missing_keys.update(missing_lora_keys)
-
-            # A normal frozen base predates bottleneck adapters.  Loading it into
-            # an injected model is safe only when the *entire* adapter state is
-            # absent and every residual up projection is still exactly zero.
-            # Conversely, silently accepting an adapter-bearing checkpoint in a
-            # model without the matching topology would drop the trained branch,
-            # because load_state_dict(strict=False) reports those keys merely as
-            # unexpected.  Keep all three cases fail-closed.
-            expected_bottleneck_keys = {
-                key for key in model_mot_state if _is_bottleneck_adapter_state_key(key)
-            }
-            checkpoint_bottleneck_keys = {
-                key for key in checkpoint_mot if _is_bottleneck_adapter_state_key(key)
-            }
-            missing_bottleneck_keys = {
-                key
-                for key in incompatible.missing_keys
-                if _is_bottleneck_adapter_state_key(key)
-            }
-            unexpected_bottleneck_keys = {
-                key
-                for key in incompatible.unexpected_keys
-                if _is_bottleneck_adapter_state_key(key)
-            }
-            if unexpected_bottleneck_keys:
-                raise ValueError(
-                    "Checkpoint contains bottleneck adapter tensors but the current "
-                    "model topology does not declare all of them; refusing to drop "
-                    "trained adapters. "
-                    f"unexpected={len(unexpected_bottleneck_keys)} "
-                    f"sample={sorted(unexpected_bottleneck_keys)[:10]}"
-                )
-            if checkpoint_bottleneck_keys and missing_bottleneck_keys:
-                raise ValueError(
-                    "Checkpoint contains a partial bottleneck adapter state; "
-                    "refusing to mix checkpoint adapters with freshly initialized "
-                    "tensors. "
-                    f"present={len(checkpoint_bottleneck_keys)} "
-                    f"missing={len(missing_bottleneck_keys)} "
-                    f"sample={sorted(missing_bottleneck_keys)[:10]}"
-                )
-            if expected_bottleneck_keys and not checkpoint_bottleneck_keys:
-                if missing_bottleneck_keys != expected_bottleneck_keys:
-                    raise ValueError(
-                        "Frozen base has an incomplete bottleneck adapter absence "
-                        "contract. "
-                        f"expected_missing={len(expected_bottleneck_keys)} "
-                        f"observed_missing={len(missing_bottleneck_keys)}"
-                    )
-                up_keys = sorted(
-                    key
-                    for key in expected_bottleneck_keys
-                    if _is_bottleneck_adapter_up_state_key(key)
-                )
-                if not up_keys:
-                    raise ValueError(
-                        "Injected bottleneck adapters expose no auditable zero-up "
-                        "projection tensors."
-                    )
-                nonzero_up = [
-                    key
-                    for key in up_keys
-                    if torch.count_nonzero(model_mot_state[key]).item() != 0
-                ]
-                if nonzero_up:
-                    raise ValueError(
-                        "Fresh bottleneck adapter initialization is not function "
-                        "preserving; non-zero up tensors: "
-                        f"{nonzero_up[:10]}"
-                    )
-                allowed_missing_keys.update(missing_bottleneck_keys)
-            missing_keys = [
-                key
-                for key in incompatible.missing_keys
-                if key not in skipped_mot_key_set and key not in allowed_missing_keys
-            ]
-            unexpected_keys = list(incompatible.unexpected_keys)
-            logger.info(
-                "Checkpoint load audit | path=%s | mot_keys=%d | loaded=%d | "
-                "skipped=%d | missing=%d | unexpected=%d",
-                path,
-                len(checkpoint_mot),
-                len(load_mot),
-                len(skipped_mot_keys),
-                len(missing_keys),
-                len(unexpected_keys),
-            )
-            if skipped_mot_keys:
-                logger.warning(
-                    "Checkpoint intentionally skipped MoT parameters | prefixes=%s | keys=%s",
-                    list(mot_skip_prefixes),
-                    skipped_mot_keys,
-                )
-            if missing_keys:
-                logger.warning("Checkpoint missing key sample: %s", missing_keys[:10])
-            allowed_missing = sorted(
-                key for key in incompatible.missing_keys if key in allowed_missing_keys
-            )
-            if allowed_missing:
-                logger.info(
-                    "Initialized checkpoint-absent parameters under an audited "
-                    "function-preserving contract | count=%d sample=%s",
-                    len(allowed_missing),
-                    allowed_missing[:10],
-                )
-            if unexpected_keys:
-                logger.warning("Checkpoint unexpected key sample: %s", unexpected_keys[:10])
-            if initialized_legacy_ego_tokenizer:
-                logger.info(
-                    "Initialized separate Ego action tokenizer from legacy checkpoint "
-                    "action_encoder/head weights."
-                )
-            if initialized_legacy_source_tokenizers:
-                logger.info(
-                    "Initialized source-specific action tokenizers from legacy "
-                    "checkpoint action_encoder/head weights: %s",
-                    initialized_legacy_source_tokenizers,
-                )
-            loaded_state = self.mot.state_dict()
-            probe_names = [
-                "mixtures.action.action_encoder.weight",
-                "mixtures.action.head.weight",
-                "mixtures.action.ego_action_encoder.weight",
-                "mixtures.action.ego_head.weight",
-                "mixtures.video.head.head.weight",
-            ]
-            for source in self.action_expert.source_action_encoders:
-                probe_names.extend(
-                    [
-                        f"mixtures.action.source_action_encoders.{source}.weight",
-                        f"mixtures.action.source_heads.{source}.weight",
-                    ]
-                )
-            for probe_name in probe_names:
-                probe = loaded_state.get(probe_name)
-                if probe is None or probe.numel() == 0:
-                    continue
-                probe_float = probe.detach().float()
-                logger.info(
-                    "Checkpoint parameter probe | name=%s | shape=%s | first=%.9g | mean=%.9g | std=%.9g",
-                    probe_name,
-                    tuple(probe.shape),
-                    probe_float.reshape(-1)[0].item(),
-                    probe_float.mean().item(),
-                    probe_float.std().item(),
-                )
+            self.mot.load_state_dict(load_mot, strict=False)
         elif "dit" in payload:
-            if mot_skip_prefixes:
-                raise ValueError(
-                    "mot_skip_prefixes cannot be used with a legacy `dit` checkpoint."
-                )
             logger.warning("Loading legacy `dit` checkpoint into video expert only.")
             self.video_expert.load_state_dict(payload["dit"], strict=False)
-        else:
-            raise ValueError(f"Checkpoint missing both `mot` and `dit` keys: {path}")
         if self.proprio_encoder is not None:
             if skip_proprio_encoder:
                 logger.warning(

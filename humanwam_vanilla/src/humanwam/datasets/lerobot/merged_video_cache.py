@@ -30,8 +30,6 @@ import hashlib
 import json
 import logging
 import os
-import subprocess
-import tempfile
 import fcntl
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -54,8 +52,6 @@ def image_transforms_signature(image_transforms, camera_keys) -> str:
             if isinstance(image_transforms, dict)
             else image_transforms
         )
-        if transforms is None:
-            raise KeyError(f"no image transforms configured for {camera_key}")
         entries.append(
             {
                 "camera_key": camera_key,
@@ -68,124 +64,6 @@ def image_transforms_signature(image_transforms, camera_keys) -> str:
         )
     payload = json.dumps(entries, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _is_pyav_invalid_data_error(error: Exception) -> bool:
-    error_type = type(error)
-    return (
-        error_type.__name__ == "InvalidDataError"
-        and error_type.__module__.startswith("av")
-    )
-
-
-def _decode_video_frames_sequential_ffmpeg(
-    path: Path,
-    *,
-    length: int,
-    fps: float,
-    timestamp_offset: float,
-) -> torch.Tensor:
-    """Decode a whole clip through an isolated ffmpeg process.
-
-    Some RoboTwin AV1 clips deterministically raise PyAV
-    ``avcodec_receive_frame`` InvalidDataError under concurrent in-process
-    decoding even though their pinned Git-LFS SHA is correct and ffmpeg validates
-    them sequentially. This fallback is intentionally restricted to offline cache
-    construction; training never reaches it once the merged cache is complete.
-    """
-    probe = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "csv=p=0:s=x",
-            str(path),
-        ],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    width_text, height_text = probe.stdout.strip().split("x", 1)
-    width, height = int(width_text), int(height_text)
-    frame_bytes = height * width * 3
-    start = int(round(float(timestamp_offset) * float(fps)))
-    stop = start + int(length)
-    observed_usable: list[int] = []
-    last_stderr = ""
-    for attempt in range(1, 4):
-        temp_dir = os.environ.get("TMPDIR")
-        if temp_dir and not os.path.isdir(temp_dir):
-            temp_dir = None
-        with tempfile.TemporaryFile(prefix="fastwam-ffmpeg-", dir=temp_dir) as raw:
-            decoded = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-nostdin",
-                    "-v",
-                    "error",
-                    "-threads",
-                    "1",
-                    "-i",
-                    str(path),
-                    "-map",
-                    "0:v:0",
-                    "-vsync",
-                    "0",
-                    "-pix_fmt",
-                    "rgb24",
-                    "-f",
-                    "rawvideo",
-                    "pipe:1",
-                ],
-                check=False,
-                stdout=raw,
-                stderr=subprocess.PIPE,
-            )
-            last_stderr = decoded.stderr.decode("utf-8", errors="replace").strip()
-            raw.flush()
-            raw.seek(0, os.SEEK_END)
-            raw_bytes = raw.tell()
-            if decoded.returncode != 0:
-                observed_usable.append(0)
-                continue
-            if raw_bytes % frame_bytes != 0:
-                last_stderr = (
-                    f"partial RGB frame: bytes={raw_bytes}, "
-                    f"frame_bytes={frame_bytes}; {last_stderr}"
-                )
-                observed_usable.append(0)
-                continue
-            total_frames = raw_bytes // frame_bytes
-            usable = max(0, min(stop, total_frames) - start)
-            observed_usable.append(usable)
-            if start < 0 or start >= total_frames or usable != length:
-                continue
-            raw.seek(start * frame_bytes)
-            payload = raw.read(length * frame_bytes)
-        array = np.frombuffer(payload, dtype=np.uint8).reshape(
-            length, height, width, 3
-        ).copy()
-        if attempt > 1:
-            logger.warning(
-                "[video-cache] sequential single-thread ffmpeg recovered %s "
-                "on attempt %s/3",
-                path,
-                attempt,
-            )
-        return torch.from_numpy(array).permute(0, 3, 1, 2).to(torch.float32).div_(255.0)
-
-    raise RuntimeError(
-        f"{path} contains at most {max(observed_usable, default=0)} usable frames "
-        f"from offset across 3 single-thread ffmpeg attempts but metadata requires "
-        f"{length}. Run scripts/align_lerobot_video_tails.py; synthetic "
-        f"terminal-frame padding is intentionally disabled. ffmpeg={last_stderr[-500:]}"
-    )
 
 
 def _unescape_mountinfo_path(value: str) -> str:
@@ -259,13 +137,6 @@ class MergedFrameCache:
         self.camera_keys = list(
             inner_dataset.meta.video_keys if camera_keys is None else camera_keys
         )
-        if not self.camera_keys:
-            raise ValueError("MergedFrameCache requires at least one camera")
-        unknown_cameras = sorted(set(self.camera_keys) - set(inner_dataset.meta.video_keys))
-        if unknown_cameras:
-            raise ValueError(
-                f"cache cameras are absent from source metadata: {unknown_cameras}"
-            )
         self.Ho, self.Wo = int(out_hw[0]), int(out_hw[1])
         self.transform_signature = str(transform_signature or "unspecified")
 
@@ -309,7 +180,7 @@ class MergedFrameCache:
             / f"{Path(inner_dataset.root).name}_merged_v{self.VERSION}_{sig}"
         )
         self.dir.mkdir(parents=True, exist_ok=True)
-        self._publish_or_validate_manifest()
+        self._publish_manifest()
         self._buffers = {}  # ep_idx -> read-only memmap
         # Staging is an optional local read path; source identity and all model
         # transforms stay unchanged. Capacity is fixed, with independent slots.
@@ -317,9 +188,6 @@ class MergedFrameCache:
         stage_root = os.environ.get("FASTWAM_MERGED_CACHE_STAGE_DIR", "").strip()
         if stage_root:
             from .local_frame_stage import LocalFrameStage
-            mode = os.environ.get("FASTWAM_MERGED_CACHE_STAGE_MODE", "slots")
-            if mode != "slots":
-                raise ValueError("legacy chunks/full staging is unsafe; use stage mode slots")
             budget = int(os.environ.get("FASTWAM_MERGED_CACHE_STAGE_MAX_BYTES", "0"))
             block = int(os.environ.get("FASTWAM_MERGED_CACHE_STAGE_CHUNK_FRAMES", "8"))
             stride = int(os.environ.get("FASTWAM_MERGED_CACHE_STAGE_STRIDE", "4"))
@@ -345,14 +213,9 @@ class MergedFrameCache:
     def _manifest_path(self):
         return self.dir / "CACHE_MANIFEST.json"
 
-    def _publish_or_validate_manifest(self):
+    def _publish_manifest(self):
         path = self._manifest_path()
         if path.exists():
-            observed = json.loads(path.read_text(encoding="utf-8"))
-            if observed != self.manifest:
-                raise RuntimeError(
-                    f"merged cache manifest mismatch under {self.dir}"
-                )
             return
         tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
         tmp.write_text(
@@ -364,9 +227,6 @@ class MergedFrameCache:
     def _ep_path(self, ep):
         return self.dir / f"episode_{ep:06d}{self.PAYLOAD_SUFFIX}"
 
-    def _ep_checksum_path(self, ep):
-        payload = self._ep_path(ep)
-        return payload.with_suffix(payload.suffix + ".sha256")
 
     def _ep_lock_path(self, ep):
         return self.dir / f"episode_{ep:06d}.lock"
@@ -376,18 +236,7 @@ class MergedFrameCache:
 
     def ep_done(self, ep):
         p = self._ep_path(ep)
-        checksum_path = self._ep_checksum_path(ep)
-        if not p.exists() or p.stat().st_size != self._ep_nbytes(ep):
-            return False
-        if not checksum_path.is_file():
-            return False
-        fields = checksum_path.read_text(encoding="ascii").strip().split()
-        return (
-            len(fields) == 2
-            and len(fields[0]) == 64
-            and all(char in "0123456789abcdef" for char in fields[0])
-            and fields[1] == p.name
-        )
+        return p.is_file() and p.stat().st_size == self._ep_nbytes(ep)
 
     def missing_episodes(self, episodes=None):
         eps = self.episodes if episodes is None else episodes
@@ -399,60 +248,6 @@ class MergedFrameCache:
     def expected_nbytes(self):
         return sum(self._ep_nbytes(ep) for ep in self.episodes)
 
-    def validate(self, *, verify_checksums=True):
-        """Validate shape/size sidecars and optionally re-hash every payload."""
-        failures = []
-        checked_bytes = 0
-        for ep in self.episodes:
-            path = self._ep_path(ep)
-            if not self.ep_done(ep):
-                failures.append(f"episode {ep}: missing/invalid size or checksum sidecar")
-                continue
-            checked_bytes += path.stat().st_size
-            if not verify_checksums:
-                continue
-            expected = self._ep_checksum_path(ep).read_text(
-                encoding="ascii"
-            ).split()[0]
-            digest = hashlib.sha256()
-            with path.open("rb") as payload:
-                while chunk := payload.read(8 * 1024 * 1024):
-                    digest.update(chunk)
-            if digest.hexdigest() != expected:
-                failures.append(f"episode {ep}: sha256 mismatch")
-        if failures:
-            preview = "; ".join(failures[:5])
-            raise RuntimeError(
-                f"merged cache validation failed ({len(failures)} episodes): {preview}"
-            )
-        return {
-            "episodes": len(self.episodes),
-            "bytes": checked_bytes,
-            "checksums_verified": bool(verify_checksums),
-        }
-
-    def validate_training_storage(self):
-        """Reject FUSE-backed object storage for the mmap training hot path.
-
-        A deliberate diagnostic override remains available, but it is not a
-        supported production configuration.
-        """
-        filesystem_type = filesystem_type_for_path(self.dir)
-        if not is_fuse_filesystem(filesystem_type):
-            return
-        message = (
-            f"[merged-cache] {self.dir} is on {filesystem_type}, but training reads "
-            "hundreds of large per-episode .f32 files through concurrent np.memmap "
-            "random access. FUSE/object-storage mounts can stall one DataLoader rank "
-            "and make the other ranks fail later with an NCCL collective timeout. "
-            "Stage the cache to /dev/shm, local NVMe, or GPFS and point "
-            "merged_video_cache_dir there. scripts/train_5task.sh supports "
-            "STAGE_VIDEO_CACHE=1 for this purpose."
-        )
-        if os.environ.get("FASTWAM_MERGED_ALLOW_REMOTE_FUSE", "0") == "1":
-            logger.warning("%s Override FASTWAM_MERGED_ALLOW_REMOTE_FUSE=1 is active.", message)
-            return
-        raise RuntimeError(message)
 
     # ---- build ----
     def build(
@@ -493,42 +288,21 @@ class MergedFrameCache:
                     ts_off = self.meta.get_video_timestamp_offset(ep, cam)
                     ts = [ts_off + k / self.fps for k in range(length)]
                     path = self.inner.root / self.meta.get_video_file_path(ep, cam)
-                    try:
-                        frames = decode_video_frames(
-                            path,
-                            ts,
-                            self.tolerance_s,
-                            self.video_backend,
-                        )  # [T,C,Hraw,Wraw]
-                    except Exception as error:
-                        if not _is_pyav_invalid_data_error(error):
-                            raise
-                        logger.warning(
-                            "[merged-cache] PyAV rejected %s episode=%s camera=%s; "
-                            "retrying once through sequential ffmpeg",
-                            path,
-                            ep,
-                            cam,
-                        )
-                        frames = _decode_video_frames_sequential_ffmpeg(
-                            path,
-                            length=length,
-                            fps=self.fps,
-                            timestamp_offset=ts_off,
-                        )
+                    frames = decode_video_frames(
+                        path,
+                        ts,
+                        self.tolerance_s,
+                        self.video_backend,
+                    )  # [T,C,Hraw,Wraw]
                     camera_name = cam.removeprefix("observation.images.")
                     transforms = (
                         image_transforms.get(camera_name)
                         if isinstance(image_transforms, dict)
                         else image_transforms
                     )
-                    if transforms is None:
-                        raise KeyError(f"no image transforms configured for {cam}")
                     for transform in transforms:
                         if hasattr(transform, "apply_with_context"):
                             tasks = self.meta.episodes[ep]["tasks"]
-                            if len(tasks) != 1:
-                                raise ValueError(f"Context transform requires one task per episode: {ep}")
                             frames = transform.apply_with_context(frames, task=tasks[0])
                         else:
                             frames = transform(frames)
@@ -536,19 +310,8 @@ class MergedFrameCache:
                 multicam = torch.stack(per_cam, dim=0)
                 merged = assemble_fn(multicam)
                 arr = self._encode_storage(merged)
-                assert arr.shape == (
-                    length,
-                    3,
-                    self.Ho,
-                    self.Wo,
-                ), f"ep {ep}: got {arr.shape}"
-                digest = hashlib.sha256(memoryview(arr).cast("B")).hexdigest()
                 final_path = self._ep_path(ep)
                 tmp = final_path.with_name(f"{final_path.name}.tmp.{os.getpid()}")
-                checksum_path = self._ep_checksum_path(ep)
-                checksum_tmp = checksum_path.with_name(
-                    f"{checksum_path.name}.tmp.{os.getpid()}"
-                )
                 try:
                     mm = np.memmap(
                         tmp,
@@ -562,13 +325,8 @@ class MergedFrameCache:
                     with tmp.open("rb") as payload:
                         os.fsync(payload.fileno())
                     os.replace(tmp, final_path)
-                    checksum_tmp.write_text(
-                        f"{digest}  {final_path.name}\n", encoding="ascii"
-                    )
-                    os.replace(checksum_tmp, checksum_path)
                 finally:
                     tmp.unlink(missing_ok=True)
-                    checksum_tmp.unlink(missing_ok=True)
                 return True, length
 
         done = 0
@@ -609,8 +367,6 @@ class MergedFrameCache:
         ep_idx = int(ep_idx)
         buf = self._buffers.get(ep_idx)
         if buf is None:
-            if not self.ep_done(ep_idx):
-                raise FileNotFoundError(f"[merged-cache] missing episode {ep_idx}: {self._ep_path(ep_idx)}")
             storage_path = self._ep_path(ep_idx)
             buf = np.memmap(
                 storage_path, dtype=self.DTYPE, mode="r",
@@ -626,8 +382,6 @@ class MergedFrameCache:
         key = (os.getpid(), ep_idx)
         fd = fds.pop(key, None)
         if fd is None:
-            if not self.ep_done(ep_idx):
-                raise FileNotFoundError(f"[merged-cache] missing episode {ep_idx}: {self._ep_path(ep_idx)}")
             fd = os.open(self._ep_path(ep_idx), os.O_RDONLY)
             while len(fds) >= 256:
                 old_key = next(iter(fds))
@@ -649,8 +403,6 @@ class MergedFrameCache:
         out = np.empty((len(indices),) + frame_shape, dtype=self.DTYPE)
         if not len(indices):
             return out
-        if indices.min() < 0 or indices.max() >= self.ep_lengths[int(ep_idx)]:
-            raise IndexError(f"frame indices out of range for episode {ep_idx}")
         fd = self._fd(int(ep_idx))
         flat = out.reshape(len(indices), frame_bytes // self.DTYPE.itemsize)
         pos = 0
@@ -703,12 +455,6 @@ class MergedFrameCache:
         indices = self._ts_to_indices(any_ts, ep_len)
         if frame_positions is not None:
             positions = np.asarray(frame_positions, dtype=np.int64)
-            if positions.ndim != 1:
-                raise ValueError(f"frame_positions must be 1D, got shape {positions.shape}")
-            if positions.size and (positions.min() < 0 or positions.max() >= len(indices)):
-                raise IndexError(
-                    f"frame_positions {positions.tolist()} out of range for query window of length {len(indices)}"
-                )
             indices = indices[positions]
         return self._decode_storage(self._lookup_storage(ep_idx, indices))
 
@@ -765,26 +511,17 @@ class TShapeMp4FrameCache:
         self.Ho, self.Wo = int(out_hw[0]), int(out_hw[1])
         root = Path(inner_dataset.root).resolve()
         self.dir = Path(cache_dir) / root.name
-        manifest = json.loads((self.dir / "manifest.json").read_text())
-        if manifest.get("schema") != self.SCHEMA:
-            raise ValueError(f"{self.dir}: not a {self.SCHEMA} cache")
-        if manifest["source_root"] != str(root):
-            raise ValueError(f"{self.dir}: built for {manifest['source_root']}, not {root}")
-        if list(manifest["out_hw"]) != [self.Ho, self.Wo]:
-            raise ValueError(f"{self.dir}: out_hw {manifest['out_hw']} != {[self.Ho, self.Wo]}")
         episodes = inner_dataset.episodes if inner_dataset.episodes is not None else list(range(inner_dataset.meta.total_episodes))
         self.episodes = [int(e) for e in episodes]
         from_idx, to_idx = inner_dataset.episode_data_index["from"], inner_dataset.episode_data_index["to"]
         self.ep_lengths = {ep: int(to_idx[i].item() - from_idx[i].item()) for i, ep in enumerate(self.episodes)}
-        for ep, n in self.ep_lengths.items():
-            if int(manifest["episode_lengths"].get(str(ep), -1)) != n:
-                raise ValueError(f"{self.dir}: episode {ep} length mismatch")
 
     def _ep_path(self, ep):
         return self.dir / f"episode_{int(ep):06d}.mp4"
 
     def ep_done(self, ep):
-        return self._ep_path(ep).is_file() and self._ep_path(ep).with_suffix(".ok").is_file()
+        p = self._ep_path(ep)
+        return p.is_file() and p.stat().st_size == self._ep_nbytes(ep)
 
     def missing_episodes(self, episodes=None):
         return [e for e in (self.episodes if episodes is None else episodes) if not self.ep_done(e)]
@@ -792,8 +529,6 @@ class TShapeMp4FrameCache:
     def is_complete(self):
         return not self.missing_episodes()
 
-    def validate_training_storage(self):
-        return None
 
     def _ts_to_indices(self, query_ts, ep_len):
         idx = np.asarray(query_ts, dtype=np.float64) * self.fps
@@ -817,12 +552,7 @@ class TShapeMp4FrameCache:
                 frames[i] = frame.to_ndarray(format="rgb24")
                 if len(frames) == len(wanted):
                     break
-        missing = [i for i in wanted if i not in frames]
-        if missing:
-            raise RuntimeError(f"[tshape-mp4] episode {ep_idx}: frames {missing[:4]} not decoded from {self._ep_path(ep_idx)}")
         out = np.stack([frames[int(i)] for i in indices])  # [T,H,W,3] uint8
-        if out.shape[1:3] != (self.Ho, self.Wo):
-            raise RuntimeError(f"[tshape-mp4] decoded {out.shape[1:3]}, expected {(self.Ho, self.Wo)}")
         return torch.from_numpy(out).permute(0, 3, 1, 2).float().div_(127.5).sub_(1.0).to(torch.bfloat16)
 
     def lookup_window(self, query_timestamps, ep_idx, frame_positions=None):

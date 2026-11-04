@@ -16,7 +16,6 @@ def _resolve_global_rank() -> int:
 
 def set_global_seed(seed: int, get_worker_init_fn: bool = False) -> Optional[Callable[[int], None]]:
     """Sets seed for all randomness libraries (mostly random, numpy, torch) and produces a `worker_init_fn`"""
-    assert np.iinfo(np.uint32).min < seed < np.iinfo(np.uint32).max, "Seed outside the np.uint32 bounds!"
 
     # Set Seed as an Environment Variable
     os.environ["EXPERIMENT_GLOBAL_SEED"] = str(seed)

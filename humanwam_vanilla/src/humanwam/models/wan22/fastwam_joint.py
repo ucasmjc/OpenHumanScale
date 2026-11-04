@@ -15,15 +15,6 @@ class FastWAMJoint(FastWAM):
 
     @classmethod
     def from_wan22_pretrained(cls, **kwargs):
-        video_dit_config = kwargs.get("video_dit_config", None)
-        if not isinstance(video_dit_config, dict):
-            raise ValueError(
-                "`video_dit_config` must be provided as dict for FastWAMJoint."
-            )
-        if bool(video_dit_config.get("action_conditioned", False)):
-            raise ValueError(
-                "FastWAMJoint requires `video_dit_config['action_conditioned']=false`."
-            )
         return super().from_wan22_pretrained(**kwargs)
 
     @torch.no_grad()
@@ -115,32 +106,12 @@ class FastWAMJoint(FastWAM):
 
         if input_image.ndim == 3:
             input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(
-                f"`input_image` must have shape [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}"
-            )
         _, _, height, width = input_image.shape
         checked_h, checked_w, checked_t = self._check_resize_height_width(height, width, num_video_frames)
-        if (checked_h, checked_w) != (height, width):
-            raise ValueError(
-                f"`input_image` must be resized before infer, expected multiples of 16 but got HxW=({height},{width})"
-            )
-        if checked_t != num_video_frames:
-            raise ValueError(
-                f"`num_video_frames` must satisfy T % 4 == 1, got {num_video_frames}"
-            )
 
         if proprio is not None:
-            if self.proprio_dim is None:
-                raise ValueError("`proprio` was provided but `proprio_dim=None` so `proprio_encoder` is disabled.")
             if proprio.ndim == 1:
                 proprio = proprio.unsqueeze(0)
-            elif proprio.ndim == 2 and proprio.shape[0] == 1:
-                pass
-            else:
-                raise ValueError(f"`proprio` must be [D] or [1,D], got shape {tuple(proprio.shape)}")
-            if proprio.shape[1] != self.proprio_dim:
-                raise ValueError(f"`proprio` last dim must be {self.proprio_dim}, got {proprio.shape[1]}")
             proprio = proprio.to(device=self.device, dtype=self.torch_dtype)
 
         latent_t = (num_video_frames - 1) // self.vae.temporal_downsample_factor + 1
@@ -168,25 +139,14 @@ class FastWAMJoint(FastWAM):
         fuse_flag = bool(getattr(self.video_expert, "fuse_vae_embedding_in_latents", False))
 
         use_prompt = prompt is not None
-        use_context = context is not None or context_mask is not None
-        if use_prompt and use_context:
-            raise ValueError("`prompt` and `context/context_mask` are mutually exclusive.")
-        if not use_prompt and not use_context:
-            raise ValueError("Either `prompt` or both `context/context_mask` must be provided.")
 
         if use_prompt:
             context, context_mask = self.encode_prompt(prompt)
         else:
-            if context is None or context_mask is None:
-                raise ValueError("`context` and `context_mask` must be both provided together.")
             if context.ndim == 2:
                 context = context.unsqueeze(0)
             if context_mask.ndim == 1:
                 context_mask = context_mask.unsqueeze(0)
-            if context.ndim != 3 or context_mask.ndim != 2:
-                raise ValueError(
-                    f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
-                )
             context = context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
             context_mask = context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True)
         if proprio is not None:

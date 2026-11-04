@@ -15,8 +15,6 @@ from pathlib import Path
 
 class TrainingGC:
     def __init__(self, mode, directory, rank=0):
-        if mode not in {'default', 'threshold10', 'freeze10'}:
-            raise ValueError(f'Unknown training GC mode: {mode}')
         self.pid = os.getpid()
         self.rank = rank
         self.mode = mode
@@ -25,8 +23,6 @@ class TrainingGC:
         self.original_threshold = gc.get_threshold()
         self.original_enabled = gc.isenabled()
         self.original_frozen = gc.get_freeze_count()
-        if mode == 'freeze10' and self.original_frozen:
-            raise RuntimeError('Cannot own gc.freeze policy over pre-existing frozen objects')
         self.did_freeze = False
         self.closed = False
         self.starts = {}

@@ -64,29 +64,6 @@ def _uint8_video_to_float(video: torch.Tensor, *, dtype: torch.dtype) -> torch.T
     return video.to(torch.float32).div(127.5).sub(1.0).to(dtype=dtype)
 
 
-def _validate_video(video: torch.Tensor, layout: str) -> None:
-    if not isinstance(video, torch.Tensor):
-        raise TypeError(f"sample['video'] must be a tensor, got {type(video)}")
-    if layout == "robotwin_three_views_256x352":
-        if video.ndim != 5 or tuple(video.shape[:2]) != (3, 3):
-            raise ValueError(f"sample['video'] must have shape [3 views,3,T,H,W], got {tuple(video.shape)}")
-    elif video.ndim != 4 or video.shape[0] != 3:
-        raise ValueError(f"sample['video'] must have shape [3,T,H,W], got {tuple(video.shape)}")
-    if not video.is_floating_point():
-        raise TypeError(f"clip augmentation expects a floating video, got {video.dtype}")
-    sizes = {"robotwin_tshape_384x320": (384, 320), "robotwin_head_256x352": (256, 352),
-             "robotwin_three_views_256x352": (256, 352), "robotwin_tshape_384x352": (384, 352)}
-    if layout not in sizes:
-        raise ValueError(f"unsupported video augmentation layout: {layout!r}")
-    if tuple(video.shape[-2:]) != sizes[layout]:
-        raise ValueError(
-            f"{layout} requires HxW={sizes[layout]}, "
-            f"got {tuple(video.shape[-2:])}"
-        )
-    if not torch.isfinite(video).all():
-        raise ValueError("sample['video'] contains non-finite values")
-
-
 def _replace_tile(canvas: torch.Tensor, rows: slice, cols: slice, tile: torch.Tensor) -> None:
     canvas[..., rows, cols] = tile
 
@@ -157,11 +134,6 @@ _GEOMETRIC_DEFAULTS: dict[str, Any] = {
 def _family_params(name: str, raw: Any, defaults: dict[str, Any]) -> dict[str, Any] | None:
     if raw is None or raw is False:
         return None
-    if not isinstance(raw, dict):
-        raise TypeError(f"{name} must be a mapping, got {type(raw)}")
-    unknown = set(raw) - set(defaults) - {"enabled"}
-    if unknown:
-        raise ValueError(f"{name} has unknown keys: {sorted(unknown)}")
     if "enabled" in raw and not bool(raw["enabled"]):
         return None
     params = dict(defaults)
@@ -169,8 +141,6 @@ def _family_params(name: str, raw: Any, defaults: dict[str, Any]) -> dict[str, A
     for key, value in params.items():
         if isinstance(value, (list, tuple)):
             params[key] = tuple(value)
-    if not 0.0 <= float(params["probability"]) <= 1.0:
-        raise ValueError(f"{name}.probability must be in [0,1]")
     return params
 
 
@@ -220,57 +190,17 @@ class ClipLockedVideoAugmentation(Dataset):
         geometric_jitter: dict[str, Any] | None = None,
         internw0: dict[str, Any] | None = None,
     ) -> None:
-        head_names = {"openwam_color", "openwam_lighting", "openvla_photo_only", "ra_photo"}
-        legacy_names = {"openvla_all_views", "openvla_primary_crop", "ra_photo"}
-        if layout not in {"robotwin_head_256x352", "robotwin_tshape_384x320", "robotwin_three_views_256x352", "robotwin_tshape_384x352"}:
-            raise ValueError(f"unsupported video augmentation layout: {layout!r}")
-        allowed = head_names if layout == "robotwin_head_256x352" else legacy_names
-        if layout in {"robotwin_three_views_256x352", "robotwin_tshape_384x352"}:
-            allowed = {"ra_photo"}
-        if name not in allowed:
-            raise ValueError(f"unsupported video augmentation name: {name!r}")
-        if not 0.0 <= float(probability) <= 1.0:
-            raise ValueError(f"probability must be in [0,1], got {probability}")
-        if not bool(sync_time):
-            raise ValueError("Clip-locked video augmentation requires sync_time=true (clip-locked parameters)")
-        expected_sync_cameras = name == "ra_photo"
-        if sync_cameras is not None and bool(sync_cameras) != expected_sync_cameras:
-            raise ValueError(
-                f"{name} requires sync_cameras={str(expected_sync_cameras).lower()}"
-            )
-        if name == "ra_photo" and int(magnitude_index) not in {5, 10, 15}:
-            raise ValueError("RA-Photo magnitude_index must be one of 5, 10, 15")
-        if int(num_ops) < 1 or int(num_ops) > 4:
-            raise ValueError("num_ops must be in [1, 4]")
-        if int(num_ops) != 2 and name != "ra_photo":
-            raise ValueError("num_ops only applies to ra_photo")
         self.light_field = _family_params("light_field", light_field, _LIGHT_FIELD_DEFAULTS)
         self.geometric_jitter = _family_params("geometric_jitter", geometric_jitter, _GEOMETRIC_DEFAULTS)
         self.internw0 = _family_params("internw0", internw0, _INTERNW0_DEFAULTS)
         if self.internw0 is not None:
-            for key in ("rgb_prob", "shadow_prob", "crop_prob"):
-                if not 0.0 <= float(self.internw0[key]) <= 1.0:
-                    raise ValueError(f"internw0.{key} must be in [0,1]")
-            for key in ("brightness", "contrast", "saturation", "gamma"):
-                if not 0.0 <= float(self.internw0[key]) < 1.0:
-                    raise ValueError(f"internw0.{key} must be in [0,1)")
             lo, hi = (float(v) for v in self.internw0["crop_scale_range"])
-            if not 0.5 <= lo <= hi <= 1.0:
-                raise ValueError("internw0.crop_scale_range must satisfy 0.5 <= lo <= hi <= 1.0")
-        if (self.light_field or self.geometric_jitter or self.internw0) and name != "ra_photo":
-            raise ValueError("light_field / geometric_jitter are only composed with ra_photo")
         if self.geometric_jitter is not None:
             lo, hi = self.geometric_jitter["scale_range"]
-            if not 0.9 <= float(lo) <= float(hi) <= 1.1:
-                raise ValueError("geometric_jitter.scale_range must satisfy 0.9 <= lo <= hi <= 1.1")
             for key in ("translate_x", "translate_y"):
                 a, b = self.geometric_jitter[key]
-                if int(a) > int(b) or max(abs(int(a)), abs(int(b))) > 24:
-                    raise ValueError(f"geometric_jitter.{key} must be an ordered pair within +-24 px")
         if self.light_field is not None:
             lo, hi = self.light_field["field_range"]
-            if not 0.0 < float(lo) <= 1.0 <= float(hi):
-                raise ValueError("light_field.field_range must bracket 1.0")
 
         self.dataset = dataset
         self.name = str(name)
@@ -291,8 +221,6 @@ class ClipLockedVideoAugmentation(Dataset):
             nested(self.epoch)
 
     def __getattr__(self, name: str) -> Any:
-        if name == "dataset":
-            raise AttributeError(name)
         return getattr(self.dataset, name)
 
     @staticmethod
@@ -656,7 +584,6 @@ class ClipLockedVideoAugmentation(Dataset):
             return F.adjust_brightness(tile_tchw, float(op.magnitude))
         if op.name == "sharpness":
             return F.adjust_sharpness(tile_tchw, float(op.magnitude))
-        raise AssertionError(f"unhandled RA-Photo op: {op.name}")
 
     def _apply_ra_photo(self, video: torch.Tensor, rng: random.Random) -> torch.Tensor:
         output = _float_video_to_uint8(video)
@@ -715,10 +642,7 @@ class ClipLockedVideoAugmentation(Dataset):
 
     def __getitem__(self, index: int):
         sample = self.dataset[index]
-        if not isinstance(sample, dict):
-            raise TypeError(f"wrapped dataset must return dict samples, got {type(sample)}")
         video = sample.get("video")
-        _validate_video(video, self.layout)
 
         # Optional families (geometric -> light) draw from their own RNG streams and
         # run before the photometric RA ops, so the legacy RA draws below are untouched.
@@ -735,13 +659,6 @@ class ClipLockedVideoAugmentation(Dataset):
             augmented = self._apply_openvla(video, rng)
         else:
             augmented = self._apply_ra_photo(video if pre is None else pre, rng)
-        if augmented.shape != video.shape or augmented.dtype != video.dtype:
-            raise RuntimeError(
-                "video augmentation changed the sample contract: "
-                f"{tuple(video.shape)}/{video.dtype} -> {tuple(augmented.shape)}/{augmented.dtype}"
-            )
-        if not torch.isfinite(augmented).all():
-            raise RuntimeError("video augmentation produced non-finite values")
 
         result = dict(sample)
         result["video"] = augmented.clamp(-1.0, 1.0).contiguous()

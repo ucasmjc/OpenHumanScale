@@ -58,8 +58,6 @@ class PackedParquetTableCache:
             # Serialize misses in a worker to avoid duplicate large reads.
             self.misses += 1
             table = pq.read_table(source)
-            if self._identity(path) != identity:
-                raise RuntimeError(f"Parquet changed while being read: {path}")
             size = table.get_total_buffer_size()
             if size <= max_bytes:
                 while self.entries and self.resident_bytes + size > max_bytes:
@@ -80,6 +78,4 @@ def read_packed_parquet_table(path):
     the existing episode LRU; the file cache checks identity on each file lookup.
     """
     max_bytes = int(os.environ.get("FASTWAM_PACKED_PARQUET_CACHE_BYTES", "0"))
-    if max_bytes < 0:
-        raise ValueError("FASTWAM_PACKED_PARQUET_CACHE_BYTES must be nonnegative")
     return PACKED_PARQUET_TABLE_CACHE.read(path, max_bytes)

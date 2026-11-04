@@ -52,12 +52,8 @@ if hasattr(os, "register_at_fork"):
 @contextmanager
 def _selected_rgb_container(video_path):
     capacity = int(os.environ.get("FASTWAM_PYAV_CONTAINER_CACHE_SIZE", "0"))
-    if not 0 <= capacity <= 32:
-        raise ValueError("FASTWAM_PYAV_CONTAINER_CACHE_SIZE must be in [0, 32]")
     threads = _resolve_pyav_decode_threads()
     thread_type = os.environ.get("FASTWAM_PYAV_THREAD_TYPE", "SLICE")
-    if thread_type not in {"SLICE", "FRAME", "AUTO"}:
-        raise ValueError("FASTWAM_PYAV_THREAD_TYPE must be SLICE, FRAME or AUTO")
     if not capacity:
         _close_pyav_containers()
         with av.open(str(video_path), "r") as container:
@@ -101,16 +97,7 @@ def _resolve_pyav_decode_threads() -> int:
     """
 
     raw_value = os.environ.get(_PYAV_DECODE_THREADS_ENV, "1").strip()
-    try:
-        thread_count = int(raw_value)
-    except ValueError as exc:
-        raise ValueError(
-            f"{_PYAV_DECODE_THREADS_ENV} must be a positive integer, got {raw_value!r}"
-        ) from exc
-    if thread_count <= 0:
-        raise ValueError(
-            f"{_PYAV_DECODE_THREADS_ENV} must be a positive integer, got {thread_count}"
-        )
+    thread_count = int(raw_value)
     return thread_count
 
 
@@ -119,10 +106,6 @@ def _configure_pyav_reader_threads(reader: Any, thread_count: int) -> None:
 
     stream_id = int(getattr(reader, "pyav_stream", {}).get("video", 0))
     video_streams = reader.container.streams.video
-    if stream_id < 0 or stream_id >= len(video_streams):
-        raise IndexError(
-            f"PyAV video stream index {stream_id} is outside [0, {len(video_streams)})"
-        )
     video_streams[stream_id].codec_context.thread_count = int(thread_count)
 
 
@@ -159,17 +142,8 @@ def decode_video_frames(
     if backend is None:
         backend = get_safe_default_codec()
     if backend == "torchcodec":
-        try:
-            return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s)
-        except Exception as err:
-            warnings.warn(
-                f"torchcodec video decode failed ({type(err).__name__}: {err}); falling back to torchvision/pyav."
-            )
-            return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend="pyav")
-    elif backend in ["pyav", "video_reader"]:
-        return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
-    else:
-        raise ValueError(f"Unsupported video backend: {backend}")
+        return decode_video_frames_torchcodec(video_path, timestamps, tolerance_s)
+    return decode_video_frames_torchvision(video_path, timestamps, tolerance_s, backend)
 
 
 def decode_video_frames_torchvision(
@@ -256,17 +230,6 @@ def decode_video_frames_torchvision(
     dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
     min_, argmin_ = dist.min(1)
 
-    is_within_tol = min_ < tolerance_s
-    assert is_within_tol.all(), (
-        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
-        "It means that the closest frame that can be loaded from the video is too far away in time."
-        "This might be due to synchronization issues with timestamps during data collection."
-        "To be safe, we advise to ignore this item during training."
-        f"\nqueried timestamps: {query_ts}"
-        f"\nloaded timestamps: {loaded_ts}"
-        f"\nvideo: {video_path}"
-        f"\nbackend: {backend}"
-    )
 
     # get closest frames to the query timestamps
     closest_frames = torch.stack([loaded_frames[idx] for idx in argmin_])
@@ -277,8 +240,6 @@ def decode_video_frames_torchvision(
 
     # convert to the pytorch format which is float32 in [0,1] range (and channel first)
     closest_frames = closest_frames.type(torch.float32) / 255
-
-    assert len(timestamps) == len(closest_frames)
     return closest_frames
 
 
@@ -300,8 +261,6 @@ def decode_video_frames_pyav_direct(
     with av.open(str(video_path), "r") as container:
         stream = container.streams.video[0]
         stream.codec_context.thread_count = _resolve_pyav_decode_threads()
-        if stream.time_base is None:
-            raise RuntimeError(f"video stream has no time base: {video_path}")
         seek_pts = max(0, int(first_ts / float(stream.time_base)))
         container.seek(seek_pts, stream=stream, backward=True, any_frame=False)
         for frame in container.decode(stream):
@@ -317,11 +276,6 @@ def decode_video_frames_pyav_direct(
             loaded_ts.append(current_ts)
             if current_ts >= last_ts:
                 break
-
-    if not loaded_frames:
-        raise RuntimeError(
-            f"PyAV decoded no frames for {video_path} at timestamps={timestamps}"
-        )
     query_ts = torch.tensor(timestamps, dtype=torch.float64)
     loaded_ts_tensor = torch.tensor(loaded_ts, dtype=torch.float64)
     distances = torch.cdist(
@@ -330,13 +284,6 @@ def decode_video_frames_pyav_direct(
         p=1,
     )
     minimum, indices = distances.min(1)
-    is_within_tolerance = minimum < tolerance_s
-    if not bool(is_within_tolerance.all()):
-        raise AssertionError(
-            "One or more PyAV frames violate timestamp tolerance "
-            f"({minimum[~is_within_tolerance]} > tolerance_s={tolerance_s}); "
-            f"queries={query_ts}, loaded={loaded_ts_tensor}, video={video_path}"
-        )
     closest_frames = torch.stack([loaded_frames[index] for index in indices])
     return closest_frames.to(dtype=torch.float32).div_(255)
 
@@ -356,8 +303,6 @@ def _decode_pyav_selected_rgb(video_path, timestamps, tolerance_s, log_loaded_ti
     first_ts, last_ts = min(query), max(query)
     with _selected_rgb_container(video_path) as container:
         stream = container.streams.video[0]
-        if stream.time_base is None:
-            raise RuntimeError(f'video stream has no time base: {video_path}')
         container.seek(max(0,int(first_ts/float(stream.time_base))),
                        stream=stream, backward=True, any_frame=False)
         for frame in container.decode(stream):
@@ -373,10 +318,6 @@ def _decode_pyav_selected_rgb(video_path, timestamps, tolerance_s, log_loaded_ti
                     selected[i] = frame
             if current >= last_ts:
                 break
-        if any(f is None for f in selected):
-            raise RuntimeError(f'PyAV decoded no frames for {video_path} at timestamps={timestamps}')
-        if not all(distance < tolerance_s for distance in best_distance):
-            raise AssertionError(f'PyAV timestamp tolerance violated: {video_path}; distances={best_distance}')
         converted = {}
         result=[]
         for frame in selected:
@@ -406,10 +347,7 @@ def decode_video_frames_torchcodec(
     can be adjusted during encoding to take into account decoding time and video size in bytes.
     """
 
-    if importlib.util.find_spec("torchcodec"):
-        from torchcodec.decoders import VideoDecoder
-    else:
-        raise ImportError("torchcodec is required but not available.")
+    from torchcodec.decoders import VideoDecoder
 
     # initialize video decoder
     decoder = VideoDecoder(video_path, device=device, seek_mode="approximate")
@@ -439,16 +377,6 @@ def decode_video_frames_torchcodec(
     dist = torch.cdist(query_ts[:, None], loaded_ts[:, None], p=1)
     min_, argmin_ = dist.min(1)
 
-    is_within_tol = min_ < tolerance_s
-    assert is_within_tol.all(), (
-        f"One or several query timestamps unexpectedly violate the tolerance ({min_[~is_within_tol]} > {tolerance_s=})."
-        "It means that the closest frame that can be loaded from the video is too far away in time."
-        "This might be due to synchronization issues with timestamps during data collection."
-        "To be safe, we advise to ignore this item during training."
-        f"\nqueried timestamps: {query_ts}"
-        f"\nloaded timestamps: {loaded_ts}"
-        f"\nvideo: {video_path}"
-    )
 
     # get closest frames to the query timestamps
     closest_frames = torch.stack([loaded_frames[idx] for idx in argmin_])
@@ -459,8 +387,6 @@ def decode_video_frames_torchcodec(
 
     # convert to float32 in [0,1] range (channel first)
     closest_frames = closest_frames.type(torch.float32) / 255
-
-    assert len(timestamps) == len(closest_frames)
     return closest_frames
 
 

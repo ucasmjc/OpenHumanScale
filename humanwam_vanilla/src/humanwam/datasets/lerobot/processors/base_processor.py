@@ -68,14 +68,10 @@ class BaseProcessor(ABC):
 
     @property
     def is_train(self):
-        if self._is_train is None:
-            raise ValueError("is_train has not been set. Please call train() and eval() first.")
         return self._is_train
 
     @property
     def normalizer(self) -> LinearNormalizer:
-        if self._normalizer is None:
-            raise ValueError("normalizer has not been set. Please call set_normalizer_from_stats() first.")
         return self._normalizer
 
     def train(self):
@@ -103,33 +99,15 @@ class BaseProcessor(ABC):
     def action_state_transform(self, batch):
         if "action" in batch:
             for meta in self.shape_meta["action"]:
-                k, meta_shape = meta["key"], meta["raw_shape"]
-                actual_shape = batch["action"][k].shape[-1]
-                assert actual_shape == meta_shape, \
-                    f"Action key {k} actual raw shape {actual_shape} mismatch with meta raw shape {meta_shape}."
+                _, _ = meta["key"], meta["raw_shape"]
 
         for meta in self.shape_meta["state"]:
-            k, meta_shape = meta["key"], meta["raw_shape"]
-            actual_shape = batch["state"][k].shape[-1]
-            assert actual_shape == meta_shape, \
-                f"State key {k} actual raw shape {actual_shape} mismatch with meta raw shape{meta_shape}."
+            _, _ = meta["key"], meta["raw_shape"]
 
         if self.action_state_transforms is not None:
             for trans in self.action_state_transforms:
                 batch = trans.forward(batch)
 
-        if "action" in batch:
-            for meta in self.shape_meta["action"]:
-                k, meta_shape = meta["key"], meta["shape"]
-                actual_shape = batch["action"][k].shape[-1]
-                assert actual_shape == meta_shape, \
-                    f"Action key {k} actual transformed shape {actual_shape} mismatch with meta shape {meta_shape}."
-
-        for meta in self.shape_meta["state"]:
-            k, meta_shape = meta["key"], meta["shape"]
-            actual_shape = batch["state"][k].shape[-1]
-            assert actual_shape == meta_shape, \
-                f"State key {k} actual transformed shape {actual_shape} mismatch with meta raw shape {meta_shape}."
 
         return batch
 
@@ -168,18 +146,13 @@ class BaseProcessor(ABC):
         # 2. image
         processed_images = []
         for meta in self.shape_meta["images"]:
-            key, shape = meta["key"], meta["shape"]
+            key = meta["key"]
             image = data["images"][key]  # [num_obs_steps, C, H, W]
-            assert image.ndim == 4, f"Expected 4 dimensions (num_obs_steps, C, H, W), got shape {image.shape}"
 
             # Apply transforms efficiently on the merged batch
             transforms = self.train_transforms if self.is_train else self.val_transforms
             for trans in transforms[key]:
                 image = trans(image)
-
-            meta_shape = [self.num_obs_steps] + shape
-            assert image.shape == meta_shape, \
-                f"Expected shape {meta_shape}, got {image.shape} after transforms for key {key}"
 
             processed_images.append(image)
 
@@ -205,13 +178,11 @@ class BaseProcessor(ABC):
             sample["action"] = data["action"] # [action_horizon, action_dim]
             sample["action_is_pad"] = data["action_is_pad"] # [action_horizon,]
             sample["action_dim_is_pad"] = data["action_dim_is_pad"] # [action_dim,]
-            assert sample["action"].shape[-1] == self.action_output_dim
 
         # TODO: rename all "state" into "proprio"
         sample["proprio"] = data["state"] # [num_obs_steps, proprio_dim]
         sample["proprio_is_pad"] = data["state_is_pad"] # [num_obs_steps,]
         sample["proprio_dim_is_pad"] = data["state_dim_is_pad"] # [proprio_dim,]
-        assert sample["proprio"].shape[-1] == self.proprio_output_dim
 
         sample["idx"] = data["idx"]
 
@@ -229,7 +200,6 @@ class BaseProcessor(ABC):
         Returns:
             data: Dict[str, Any], processed data including unnormalized action
         """
-        assert "action" in data, "Action is required in postprocess"
         data["state"] = data.pop("proprio")
         data = self.action_state_merger.backward(data)
         data = self.normalizer.backward(data)

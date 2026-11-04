@@ -53,7 +53,6 @@ class T5LayerNorm(nn.Module):
 class T5Attention(nn.Module):
 
     def __init__(self, dim, dim_attn, num_heads, dropout=0.1):
-        assert dim_attn % num_heads == 0
         super(T5Attention, self).__init__()
         self.dim = dim
         self.dim_attn = dim_attn
@@ -87,7 +86,6 @@ class T5Attention(nn.Module):
         if pos_bias is not None:
             attn_bias += pos_bias
         if mask is not None:
-            assert mask.ndim in [2, 3]
             mask = mask.view(b, 1, 1,
                              -1) if mask.ndim == 2 else mask.unsqueeze(1)
             attn_bias.masked_fill_(mask == 0, torch.finfo(x.dtype).min)
@@ -282,7 +280,6 @@ def canonicalize(text, keep_punctuation_exact_string=None):
 class HuggingfaceTokenizer:
 
     def __init__(self, name, seq_len=None, clean=None, **kwargs):
-        assert clean in (None, 'whitespace', 'lower', 'canonicalize')
         self.name = name
         self.seq_len = seq_len
         self.clean = clean

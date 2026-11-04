@@ -16,16 +16,6 @@ class FloorCosineLR(LRScheduler):
         self.T_max = int(T_max)
         self.floor_lr = float(floor_lr)
         self.endpoint_ratio = float(endpoint_ratio)
-        if self.T_max <= 0:
-            raise ValueError('T_max must be positive')
-        if not math.isfinite(self.floor_lr) or self.floor_lr <= 0:
-            raise ValueError('floor_lr must be finite and positive')
-        if not 0 <= self.endpoint_ratio <= 1:
-            raise ValueError('endpoint_ratio must be in [0, 1]')
-        for group in optimizer.param_groups:
-            base = float(group.get('initial_lr', group['lr']))
-            if not math.isfinite(base) or base < self.floor_lr:
-                raise ValueError('floor_lr must not exceed any parameter-group base LR')
         super().__init__(optimizer, last_epoch=last_epoch)
 
     def _get_closed_form_lr(self):

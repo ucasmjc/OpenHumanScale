@@ -18,9 +18,6 @@ class ModelConfig:
     skip_download: Optional[bool] = None
     state_dict: Optional[Dict[str, torch.Tensor]] = None
 
-    def check_input(self):
-        if self.path is None and self.model_id is None:
-            raise ValueError("ModelConfig requires either `path` or (`model_id`, `origin_file_pattern`).")
 
     def parse_original_file_pattern(self):
         if self.origin_file_pattern in [None, "", "./"]:
@@ -95,11 +92,8 @@ class ModelConfig:
                 ignore_patterns=downloaded_files,
                 local_files_only=False,
             )
-        else:
-            raise ValueError("`download_source` should be `modelscope` or `huggingface`.")
 
     def download_if_necessary(self):
-        self.check_input()
         self.reset_local_model_path()
         if self.require_downloading():
             self.download()

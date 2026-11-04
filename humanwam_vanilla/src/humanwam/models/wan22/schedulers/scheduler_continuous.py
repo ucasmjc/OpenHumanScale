@@ -5,10 +5,6 @@ class WanContinuousFlowMatchScheduler:
     """Continuous-time Flow-Matching scheduler with shift-based sampling."""
 
     def __init__(self, num_train_timesteps: int = 1000, shift: float = 5.0, eps: float = 1e-10):
-        if num_train_timesteps <= 0:
-            raise ValueError(f"`num_train_timesteps` must be positive, got {num_train_timesteps}")
-        if shift <= 0:
-            raise ValueError(f"`shift` must be positive, got {shift}")
         self.num_train_timesteps = int(num_train_timesteps)
         self.shift = float(shift)
         self.eps = float(eps)
@@ -29,8 +25,6 @@ class WanContinuousFlowMatchScheduler:
         return y_min, norm_const
 
     def sample_training_t(self, batch_size: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-        if batch_size <= 0:
-            raise ValueError(f"`batch_size` must be positive, got {batch_size}")
         u = torch.rand((batch_size,), device=device, dtype=torch.float32)
         sigma = self._phi(u, self.shift)
         timestep = sigma * float(self.num_train_timesteps)
@@ -67,11 +61,7 @@ class WanContinuousFlowMatchScheduler:
         dtype: torch.dtype,
         shift_override: float | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if num_inference_steps <= 0:
-            raise ValueError(f"`num_inference_steps` must be positive, got {num_inference_steps}")
         shift = self.shift if shift_override is None else float(shift_override)
-        if shift <= 0:
-            raise ValueError(f"`shift` must be positive, got {shift}")
 
         u_steps = torch.linspace(1.0, 0.0, num_inference_steps + 1, device=device, dtype=torch.float32)
         sigma_steps = self._phi(u_steps, shift)

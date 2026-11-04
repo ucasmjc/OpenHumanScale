@@ -7,8 +7,6 @@ from PIL import Image
 
 
 def pil_frames_to_video_tensor(frames: Sequence[Image.Image]) -> torch.Tensor:
-    if len(frames) == 0:
-        raise ValueError("`frames` must be non-empty.")
 
     frame_tensors = []
     for frame in frames:
@@ -33,8 +31,6 @@ def video_psnr(pred: torch.Tensor, target: torch.Tensor, data_range: float = 1.0
     Compute average PSNR over all frames.
     Expects `pred` and `target` in shape [3, T, H, W] with values in [0, 1].
     """
-    if pred.shape != target.shape:
-        raise ValueError(f"Shape mismatch: pred={tuple(pred.shape)} target={tuple(target.shape)}")
 
     pred = pred.float()
     target = target.float()
@@ -56,12 +52,6 @@ def video_ssim(
     Compute average SSIM over all frames.
     Expects `pred` and `target` in shape [3, T, H, W] with values in [0, 1].
     """
-    if pred.shape != target.shape:
-        raise ValueError(f"Shape mismatch: pred={tuple(pred.shape)} target={tuple(target.shape)}")
-    if pred.ndim != 4 or pred.shape[0] != 3:
-        raise ValueError(f"Expected [3, T, H, W], got {tuple(pred.shape)}")
-    if kernel_size % 2 == 0:
-        raise ValueError("`kernel_size` must be odd.")
 
     pred = pred.float().permute(1, 0, 2, 3).contiguous()  # [T, 3, H, W]
     target = target.float().permute(1, 0, 2, 3).contiguous()  # [T, 3, H, W]

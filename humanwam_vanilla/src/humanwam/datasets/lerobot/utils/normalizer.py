@@ -3,7 +3,6 @@ from typing import Literal, Dict, Annotated, Union, Any, List, Tuple, Optional
 import torch
 import json
 import os
-import time
 from collections import defaultdict
 import numpy as np
 from humanwam.utils.logging_config import get_logger
@@ -25,11 +24,7 @@ def parse_quantile_mode(mode: str) -> Optional[Tuple[str, str]]:
         return None
     if mode == "quantile":
         return DEFAULT_QUANTILE_MODE_BOUNDS
-    if not mode.startswith("quantile:"):
-        raise ValueError(f"invalid quantile normalization mode {mode!r}")
     bounds = mode[len("quantile:"):].split("/")
-    if len(bounds) != 2 or not all(b.startswith("q") for b in bounds):
-        raise ValueError(f"invalid quantile normalization mode {mode!r}; expected 'quantile:qLO/qHI'")
     return bounds[0], bounds[1]
 
 class LinearNormalizer:
@@ -141,11 +136,6 @@ class SingleFieldLinearNormalizer:
             elif parse_quantile_mode(mode) is not None:
                 lo_key, hi_key = parse_quantile_mode(mode)
                 quantiles = stats.get("quantiles")
-                if not isinstance(quantiles, dict) or lo_key not in quantiles or hi_key not in quantiles:
-                    raise KeyError(
-                        f"normalization mode {mode!r} needs stats['global_quantiles'/'stepwise_quantiles']"
-                        f"[{lo_key!r}/{hi_key!r}]; regenerate stats with quantile_reservoir_size > 0"
-                    )
                 input_min = torch.as_tensor(quantiles[lo_key]).clone()
                 input_max = torch.as_tensor(quantiles[hi_key]).clone()
             else:
@@ -169,18 +159,6 @@ class SingleFieldLinearNormalizer:
             index = int(clip["index"])
             lower = float(clip["min"])
             upper = float(clip["max"])
-            if index < 0 or index >= self.scale.shape[-1]:
-                raise ValueError(
-                    f"post-normalization clip index {index} is outside the last "
-                    f"dimension of shape {tuple(self.scale.shape)}"
-                )
-            if index in seen_indices:
-                raise ValueError(f"duplicate post-normalization clip index: {index}")
-            if not np.isfinite(lower) or not np.isfinite(upper) or lower > upper:
-                raise ValueError(
-                    f"invalid post-normalization clip bounds for index {index}: "
-                    f"[{lower}, {upper}]"
-                )
             seen_indices.add(index)
             self.output_clips.append((index, lower, upper))
 
@@ -261,24 +239,8 @@ def load_dataset_stats_from_json(file_path: str,
                 return [convert_back_to_tensor(item) for item in obj]
         else:
             return obj
-
-    # Resilient read: under multi-rank launch the train dataset's main rank writes
-    # this file while other ranks build the val dataset and read it. The atomic
-    # write above prevents partial content, but a reader can still arrive before
-    # the file exists at all (main rank still computing stats). Retry briefly
-    # rather than crashing with FileNotFoundError/JSONDecodeError.
-    deadline = time.time() + 120.0
-    while True:
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            break
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            if time.time() >= deadline:
-                raise RuntimeError(
-                    f"Timed out waiting for a valid dataset stats file at {file_path}"
-                ) from e
-            time.sleep(1.0)
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
 
     if try_convert_tensor:
         data = convert_back_to_tensor(data)

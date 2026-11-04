@@ -1,1 +1,1 @@
-"""FastWAM package."""
+"""HumanWAM-Vanilla training and inference package."""

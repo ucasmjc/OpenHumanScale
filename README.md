@@ -6,9 +6,9 @@
 
 [![arXiv](https://img.shields.io/badge/arXiv-Coming_soon-B31B1B?style=flat&logo=arxiv&logoColor=white)](#citation)
 [![Project Page](https://img.shields.io/badge/%F0%9F%8C%90-Project_Page-4285F4?style=flat)](https://jiankai-ss.github.io/open-humanscale/)
-[![Hugging Face Corpus](https://img.shields.io/badge/Hugging_Face-Corpus_%C2%B7_Coming_soon-FFD21E?style=flat&logo=huggingface)](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k)
+[![Hugging Face Open-HumanScale-50k](https://img.shields.io/badge/Hugging_Face-Open--HumanScale--50k_%C2%B7_Coming_soon-FFD21E?style=flat&logo=huggingface)](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k)
 [![Hugging Face Models](https://img.shields.io/badge/Hugging_Face-Model_Collection-FFD21E?style=flat&logo=huggingface)](https://huggingface.co/collections/DAGroup-PKU/open-humanscale)
-[![ModelScope Corpus](https://img.shields.io/badge/ModelScope-Corpus_%C2%B7_Not_uploaded_yet-624AFF?style=flat&logo=modelscope&logoColor=white)](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3)
+[![ModelScope Corpus](https://img.shields.io/badge/ModelScope-Corpus_%C2%B7_Coming_soon-624AFF?style=flat&logo=modelscope&logoColor=white)](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3)
 
 </div>
 
@@ -21,9 +21,8 @@ success from **49.1% to 73.2%**. Adding human data to a fixed robot corpus
 improves zero-shot success from **11.48% to 13.94% on RoboTwin** and from
 **20.0% to 30.5% across 20 real-world tasks**.
 
-> 🏆 **RoboTwin 2.0 Benchmark — Rank #1.** With refined post-training,
+> 🏆 **[RoboTwin 2.0 Benchmark — Rank #1](https://robotwin-platform.github.io/leaderboard).**
 > **HumanWAM-Goal** achieves **88.65% average success**, with **92.70% Clean / 84.60% Random**.
-> Co-train track, without observed depth; comparison reported in our technical report.
 
 https://github.com/user-attachments/assets/469f1f1b-cbe2-4f89-aaaf-6cbdb3a2e50e
 
@@ -102,7 +101,38 @@ from **49.1% to 73.2%** in the controlled IDM study:
 <a id="vanilla-training"></a>
 ### Training
 
-🚧 Work in progress.
+The portable launcher runs directly on your own CUDA server. Checkpoint downloads
+and data/cache preparation are still being organized; the commands below require
+a compatible full RoboTwin policy, task data, normalization statistics, text
+embeddings, and merged-video caches.
+
+After installing the environment, start from the repository root:
+
+```bash
+cd humanwam_vanilla
+cp configs/paths.example.yaml configs/paths.local.yaml
+# Fill in your local resource paths, then inspect the resolved configuration.
+python scripts/train.py --paths configs/paths.local.yaml --print-config
+
+# Single GPU (subject to available GPU memory).
+NPROC_PER_NODE=1 bash scripts/train.sh --paths configs/paths.local.yaml batch_size=1
+
+# Four GPUs on one server; uses the existing whole-model FSDP implementation.
+NPROC_PER_NODE=4 bash scripts/train.sh --paths configs/paths.local.yaml \
+  batch_size=1 gradient_accumulation_steps=16
+```
+
+`batch_size` is **per GPU**. Effective batch size is
+`batch_size × total GPUs × gradient_accumulation_steps`; adjust it for your
+hardware and experiment. These examples illustrate launching, not paper-result
+reproduction. Add `--print-config` to the launcher to display its resolved settings
+without training.
+
+For multiple servers, run the same command on each server with `NNODES`, a unique
+`NODE_RANK` (starting at 0), and the same `MASTER_ADDR` and `MASTER_PORT` set.
+All servers must have the environment and required files at the configured paths;
+use a shared output directory for distributed checkpoint saving. The launcher
+uses [PyTorch torchrun](https://docs.pytorch.org/docs/stable/elastic/run.html).
 
 <a id="vanilla-inference"></a>
 ### Inference

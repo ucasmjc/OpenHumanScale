@@ -18,22 +18,6 @@
 import numpy as np
 
 
-def _assert_type_and_shape(stats_list: list[dict[str, dict]]):
-    for i in range(len(stats_list)):
-        for fkey in stats_list[i]:
-            for k, v in stats_list[i][fkey].items():
-                if not isinstance(v, np.ndarray):
-                    raise ValueError(
-                        f"Stats must be composed of numpy array, but key '{k}' of feature '{fkey}' is of type '{type(v)}' instead."
-                    )
-                if v.ndim == 0:
-                    raise ValueError("Number of dimensions must be at least 1, and is 0 instead.")
-                if k == "count" and v.shape != (1,):
-                    raise ValueError(f"Shape of 'count' must be (1), but is {v.shape} instead.")
-                if "image" in fkey and k != "count" and v.shape != (3, 1, 1):
-                    raise ValueError(f"Shape of '{k}' must be (3,1,1), but is {v.shape} instead.")
-
-
 def aggregate_feature_stats(stats_ft_list: list[dict[str, dict]]) -> dict[str, dict[str, np.ndarray]]:
     """Aggregates stats for a single feature."""
     means = np.stack([s["mean"] for s in stats_ft_list])
@@ -74,8 +58,6 @@ def aggregate_stats(stats_list: list[dict[str, dict]]) -> dict[str, dict[str, np
     - new_mean = (mean of all data, weighted by counts)
     - new_std = (std of all data)
     """
-
-    _assert_type_and_shape(stats_list)
 
     data_keys = {key for stats in stats_list for key in stats}
     aggregated_stats = {key: {} for key in data_keys}

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import math
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -38,16 +37,6 @@ class CameraIntrinsics:
     width: int
     height: int
 
-    def __post_init__(self) -> None:
-        values = (self.fx, self.fy, self.cx, self.cy)
-        if not all(math.isfinite(value) for value in values):
-            raise ValueError(f"Camera intrinsics must be finite, got {values}")
-        if self.fx <= 0 or self.fy <= 0:
-            raise ValueError(f"Focal lengths must be positive, got fx={self.fx}, fy={self.fy}")
-        if self.width <= 0 or self.height <= 0:
-            raise ValueError(
-                f"Calibration raster must be positive, got {self.width}x{self.height}"
-            )
 
     def cover_resize_center_crop(self, output_height: int, output_width: int) -> "CameraIntrinsics":
         """Apply the loader's exact cover-resize + center-crop geometry to K."""
@@ -79,7 +68,6 @@ class CameraIntrinsics:
 def _plain_mapping(value: Any, *, context: str) -> dict[str, Any]:
     if hasattr(value, "items"):
         return {str(key): item for key, item in value.items()}
-    raise TypeError(f"{context} must be a mapping, got {type(value).__name__}")
 
 
 def camera_intrinsics_from_record(record: Mapping[str, Any]) -> CameraIntrinsics:
@@ -95,8 +83,6 @@ def camera_intrinsics_from_record(record: Mapping[str, Any]) -> CameraIntrinsics
     matrix = values.get("K", values.get("camera_matrix"))
     if matrix is not None:
         matrix = torch.as_tensor(matrix, dtype=torch.float64)
-        if matrix.shape != (3, 3):
-            raise ValueError(f"Camera K must have shape [3,3], got {tuple(matrix.shape)}")
         fx, fy = float(matrix[0, 0]), float(matrix[1, 1])
         cx, cy = float(matrix[0, 2]), float(matrix[1, 2])
     else:
@@ -109,20 +95,11 @@ def camera_intrinsics_from_record(record: Mapping[str, Any]) -> CameraIntrinsics
         parsed: dict[str, float] = {}
         for output_key, candidates in aliases.items():
             raw = next((values[key] for key in candidates if key in values), None)
-            if raw is None:
-                raise KeyError(
-                    f"Camera intrinsic record is missing {output_key}; keys={sorted(values)}"
-                )
             parsed[output_key] = float(raw)
         fx, fy, cx, cy = parsed["fx"], parsed["fy"], parsed["cx"], parsed["cy"]
 
     width = values.get("width", values.get("w", values.get("image_width")))
     height = values.get("height", values.get("h", values.get("image_height")))
-    if width is None or height is None:
-        raise KeyError(
-            "Camera intrinsic record needs calibration width/height; principal-point "
-            "inference is intentionally not allowed in the training loader"
-        )
     return CameraIntrinsics(fx, fy, cx, cy, int(width), int(height))
 
 
@@ -130,32 +107,16 @@ def load_camera_intrinsics_sidecar(path: str | Path) -> dict[int, CameraIntrinsi
     """Load ``meta/camera_intrinsics.jsonl`` into a compact episode table."""
 
     path = Path(path)
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"Missing EEF-overlay camera calibration sidecar: {path}. Build it offline; "
-            "the training loader will not inspect raw HDF5/Zarr/NPY files per sample."
-        )
     result: dict[int, CameraIntrinsics] = {}
     with path.open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, 1):
             line = line.strip()
             if not line:
                 continue
-            try:
-                record = json.loads(line)
-                episode_index = int(record["episode_index"])
-                intrinsic = camera_intrinsics_from_record(record)
-            except Exception as error:
-                raise ValueError(
-                    f"Invalid camera intrinsic sidecar record {path}:{line_number}: {error}"
-                ) from error
-            if episode_index in result:
-                raise ValueError(
-                    f"Duplicate episode_index={episode_index} in camera sidecar {path}"
-                )
+            record = json.loads(line)
+            episode_index = int(record["episode_index"])
+            intrinsic = camera_intrinsics_from_record(record)
             result[episode_index] = intrinsic
-    if not result:
-        raise ValueError(f"Camera intrinsic sidecar is empty: {path}")
     return result
 
 
@@ -166,18 +127,8 @@ def _load_dense_camera_intrinsics(path: Path) -> torch.Tensor:
     independently on every distributed rank. JSONL remains supported for inspection,
     tests, and small datasets.
     """
-
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"Missing EEF-overlay camera calibration sidecar: {path}. Build it offline; "
-            "the training loader will not inspect raw HDF5/Zarr/NPY files per sample."
-        )
     if path.suffix == ".npy":
         table = torch.from_numpy(np.load(path, allow_pickle=False)).to(torch.float32)
-        if table.ndim != 2 or table.shape[1] != 6:
-            raise ValueError(
-                f"Camera calibration array must be [num_episodes,6], got {tuple(table.shape)} in {path}"
-            )
         return table
 
     sparse = load_camera_intrinsics_sidecar(path)
@@ -201,9 +152,6 @@ def _cover_resize_center_crop_table(
     table: torch.Tensor, output_height: int, output_width: int
 ) -> torch.Tensor:
     """Vectorized calibration transform; returns compact ``[N,4]`` float32."""
-
-    if table.ndim != 2 or table.shape[1] != 6:
-        raise ValueError(f"Expected camera table [N,6], got {tuple(table.shape)}")
     fx, fy, cx, cy, width, height = table.unbind(dim=1)
     valid = torch.isfinite(table).all(dim=1) & (fx > 0) & (fy > 0) & (width > 0) & (height > 0)
     safe_width = torch.where(valid, width, torch.ones_like(width))
@@ -244,8 +192,6 @@ class EefAnchorOverlay:
         alpha: float = 0.9,
         min_depth_m: float = 0.02,
     ) -> None:
-        if len(video_size) != 2:
-            raise ValueError(f"video_size must be [height,width], got {video_size}")
         self.output_height, self.output_width = map(int, video_size)
         self.state_key = str(state_key)
         self.axis_length_m = float(axis_length_m)
@@ -254,23 +200,8 @@ class EefAnchorOverlay:
         self.origin_outline_width_px = int(origin_outline_width_px)
         self.alpha = float(alpha)
         self.min_depth_m = float(min_depth_m)
-        if self.axis_length_m <= 0:
-            raise ValueError("axis_length_m must be positive")
-        if self.line_width_px <= 0 or self.origin_radius_px <= 0:
-            raise ValueError("line_width_px and origin_radius_px must be positive")
-        if self.origin_outline_width_px < 0:
-            raise ValueError("origin_outline_width_px must be non-negative")
-        if not 0 < self.alpha <= 1:
-            raise ValueError(f"alpha must be in (0,1], got {self.alpha}")
-        if self.min_depth_m <= 0:
-            raise ValueError("min_depth_m must be positive")
 
         roots = [Path(path).expanduser().resolve() for path in dataset_dirs]
-        if len(roots) != len(selected_episode_indices):
-            raise ValueError(
-                "selected_episode_indices must have one entry per dataset root, got "
-                f"{len(selected_episode_indices)} for {len(roots)} roots"
-            )
         spec = _plain_mapping(intrinsics, context="eef_anchor_overlay.intrinsics")
         mode = str(spec.get("mode", "")).strip().lower()
         self._episode_intrinsics: tuple[torch.Tensor | None, ...]
@@ -289,29 +220,9 @@ class EefAnchorOverlay:
                 table = _cover_resize_center_crop_table(
                     raw_table, self.output_height, self.output_width
                 )
-                selected_tensor = torch.as_tensor(list(selected), dtype=torch.long)
-                out_of_range = selected_tensor[
-                    (selected_tensor < 0) | (selected_tensor >= table.shape[0])
-                ]
-                in_range = selected_tensor[
-                    (selected_tensor >= 0) & (selected_tensor < table.shape[0])
-                ]
-                invalid = in_range[~torch.isfinite(table[in_range]).all(dim=1)]
-                if out_of_range.numel() or invalid.numel():
-                    preview = torch.cat([out_of_range, invalid])[:10].tolist()
-                    raise ValueError(
-                        f"Camera sidecar {root / relative_path} is missing "
-                        f"{out_of_range.numel() + invalid.numel()} selected episodes; "
-                        f"first={preview}"
-                    )
                 episode_tables.append(table)
             self._fixed_intrinsics = tuple(None for _ in roots)
             self._episode_intrinsics = tuple(episode_tables)
-        else:
-            raise ValueError(
-                "eef_anchor_overlay.intrinsics.mode must be 'fixed' or 'sidecar', "
-                f"got {mode!r}"
-            )
 
         # RGB local XYZ and text-free hand origin colors. There is intentionally no
         # font/text path here: neither "R" nor "L" can be rendered by this overlay.
@@ -347,19 +258,8 @@ class EefAnchorOverlay:
         if fixed is not None:
             return fixed
         table = self._episode_intrinsics[dataset_index]
-        assert table is not None
         episode_index = int(episode_index)
-        if episode_index < 0 or episode_index >= table.shape[0]:
-            raise KeyError(
-                f"No EEF-overlay calibration for dataset={dataset_index}, "
-                f"episode={episode_index}"
-            )
         result = table[episode_index]
-        if not bool(torch.isfinite(result).all()):
-            raise KeyError(
-                f"Invalid EEF-overlay calibration for dataset={dataset_index}, "
-                f"episode={episode_index}"
-            )
         return result
 
     def _project(self, points: torch.Tensor, intrinsics: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -449,24 +349,12 @@ class EefAnchorOverlay:
         operating_hand: str | None = None,
     ) -> torch.Tensor:
         """Overlay canonical EEF triads onto ``video[..., time=0, :, :]`` in place."""
-
-        if video.dtype == torch.uint8:
-            raise TypeError("EEF anchor overlay must run before UINT8_VIDEO conversion")
         if video.ndim == 4:
             frame = video[:, 0]
         elif video.ndim == 5:
             # Separate-view layouts keep head camera first. The bridge experiment is
             # configured for single-head view, but this makes the primitive safe to reuse.
             frame = video[0, :, 0]
-        else:
-            raise ValueError(f"video must be [C,T,H,W] or [V,C,T,H,W], got {video.shape}")
-        if frame.shape[0] != 3:
-            raise ValueError(f"EEF overlay expects RGB video, got {frame.shape[0]} channels")
-        if tuple(frame.shape[-2:]) != (self.output_height, self.output_width):
-            raise ValueError(
-                "EEF overlay raster mismatch: expected "
-                f"{self.output_height}x{self.output_width}, got {tuple(frame.shape[-2:])}"
-            )
 
         state = torch.as_tensor(anchor_state, dtype=torch.float32, device="cpu").reshape(-1)
         if state.numel() == 16:
@@ -477,16 +365,8 @@ class EefAnchorOverlay:
             block_width = 10
             rotation_slice = slice(3, 9)
             rotation_to_matrix = rotation_6d_to_matrix
-        else:
-            raise ValueError(
-                "EEF anchor overlay expects dual-arm 16D [pos3,quat_wxyz4,grip]x2 "
-                "or 20D [pos3,rot6d6,grip]x2, "
-                f"got {state.numel()} dims"
-            )
         intrinsics = self.intrinsics_for(dataset_index, episode_index)
         hand_indices = {"left": (0,), "right": (1,), "both": (0, 1), None: (0, 1)}
-        if operating_hand not in hand_indices:
-            raise ValueError(f"Unsupported operating_hand={operating_hand!r}")
 
         visibility_margin = self.origin_radius_px + self.origin_outline_width_px
         for hand_index in hand_indices[operating_hand]:

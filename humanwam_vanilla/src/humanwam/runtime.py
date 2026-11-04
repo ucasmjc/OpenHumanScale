@@ -1,4 +1,4 @@
-# Modified by Open-HumanScale contributors: removed internal development references.
+# Modified by Open-HumanScale contributors: portable training launch and local checkpoints.
 import logging
 import os
 from pathlib import Path
@@ -16,14 +16,7 @@ logger = get_logger(__name__)
 
 
 def _normalize_mixed_precision(mixed_precision: str) -> str:
-    if not isinstance(mixed_precision, str):
-        raise ValueError(f"`mixed_precision` must be str, got {type(mixed_precision)}")
     key = mixed_precision.strip().lower()
-    if key not in {"no", "fp16", "bf16"}:
-        raise ValueError(
-            f"Unsupported mixed_precision: {mixed_precision}. "
-            "Expected one of: ['no', 'fp16', 'bf16']."
-        )
     return key
 
 
@@ -101,54 +94,34 @@ def create_fastwam(
     if model_class is not None:
         from hydra.utils import get_class
         implementation = get_class(model_class)
-        if not issubclass(implementation, FastWAM):
-            raise TypeError("model_class must be a FastWAM subclass")
-        FastWAM = implementation
+    else:
+        implementation = FastWAM
 
     if isinstance(video_dit_config, DictConfig):
         video_dit_config = OmegaConf.to_container(video_dit_config, resolve=True)
-    if not isinstance(video_dit_config, dict):
-        raise ValueError(f"`video_dit_config` must resolve to a dict, got {type(video_dit_config)}")
 
     if isinstance(action_dit_config, DictConfig):
         action_dit_config = OmegaConf.to_container(action_dit_config, resolve=True)
     if action_dit_config is None:
         action_dit_config = {}
-    if not isinstance(action_dit_config, dict):
-        raise ValueError(f"`action_dit_config` must resolve to a dict, got {type(action_dit_config)}")
 
     if isinstance(video_scheduler, DictConfig):
         video_scheduler = OmegaConf.to_container(video_scheduler, resolve=True)
     if video_scheduler is None:
         video_scheduler = {}
-    if not isinstance(video_scheduler, dict):
-        raise ValueError(f"`video_scheduler` must be dict-like, got {type(video_scheduler)}")
 
     if isinstance(action_scheduler, DictConfig):
         action_scheduler = OmegaConf.to_container(action_scheduler, resolve=True)
-    if action_scheduler is None:
-        raise ValueError("`action_scheduler` is required for FastWAM.")
-    if not isinstance(action_scheduler, dict):
-        raise ValueError(f"`action_scheduler` must be dict-like, got {type(action_scheduler)}")
-    required_action_scheduler_keys = {"train_shift", "infer_shift", "num_train_timesteps"}
-    missing_keys = required_action_scheduler_keys - set(action_scheduler.keys())
-    if missing_keys:
-        raise ValueError(
-            f"`action_scheduler` missing required keys: {sorted(missing_keys)}. "
-            "Expected keys: train_shift, infer_shift, num_train_timesteps."
-        )
 
     if isinstance(loss, DictConfig):
         loss = OmegaConf.to_container(loss, resolve=True)
     if loss is None:
         loss = {}
-    if not isinstance(loss, dict):
-        raise ValueError(f"`loss` must be dict-like, got {type(loss)}")
 
     if isinstance(action_component_indices, DictConfig):
         action_component_indices = OmegaConf.to_container(action_component_indices, resolve=True)
 
-    return FastWAM.from_wan22_pretrained(
+    return implementation.from_wan22_pretrained(
         device=device,
         torch_dtype=model_dtype,
         model_id=model_id,
@@ -247,12 +220,6 @@ def build_datasets(data_cfg: DictConfig):
     return train_ds, val_ds
 
 
-def _reject_task_weighted_wrapper(train_ds, *, wrapper_name: str) -> None:
-    if getattr(train_ds, "task_weighted_sampling", None) is not None:
-        raise ValueError(
-            f"{wrapper_name} cannot wrap task_weighted_sampling; this would hide "
-            "the exact-root sampling contract from build_resumable_sampler"
-        )
 
 
 def _maybe_wrap_video_augmentation(cfg: DictConfig, train_ds):
@@ -261,16 +228,6 @@ def _maybe_wrap_video_augmentation(cfg: DictConfig, train_ds):
     aug = cfg.data.get("video_augmentation") if cfg.get("data") is not None else None
     if aug is None or not bool(aug.get("enabled", False)):
         return train_ds
-    _reject_task_weighted_wrapper(
-        train_ds, wrapper_name="data.video_augmentation"
-    )
-    edit_mix = cfg.data.get("edit_mix")
-    if edit_mix is not None and bool(edit_mix.get("enabled", False)):
-        raise ValueError("data.video_augmentation and data.edit_mix cannot be enabled together")
-    if bool(cfg.model.get("goal_enabled", False)):
-        raise ValueError("Video augmentation requires model.goal_enabled=false")
-    if bool(cfg.data.train.get("goal_supervision", False)):
-        raise ValueError("Video augmentation requires data.train.goal_supervision=false")
 
     from .datasets.video_augmentation import ClipLockedVideoAugmentation
 
@@ -291,14 +248,8 @@ def _maybe_wrap_video_augmentation(cfg: DictConfig, train_ds):
 
 
 def _resolve_train_device() -> str:
-    if not torch.cuda.is_available():
-        return "cpu"
-    device_count = torch.cuda.device_count()
-    if device_count <= 1:
-        return "cuda:0"
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    if local_rank < 0 or local_rank >= device_count:
-        return "cuda:0"
+    torch.cuda.set_device(local_rank)
     return f"cuda:{local_rank}"
 
 
@@ -319,8 +270,9 @@ def _seed_model_initialization(seed: int) -> None:
 
 
 def run_training(cfg: DictConfig):
-    from openhumanscale.config import validate_config
-    validate_config(cfg, check_files=True)
+    from humanwam.config import configure_launch
+    configure_launch(cfg)
+    model_device = _resolve_train_device()
     from .trainer import Wan22Trainer
     setup_logging(
         log_level=logging.INFO,
@@ -333,7 +285,6 @@ def run_training(cfg: DictConfig):
         with open(Path(cfg.output_dir) / "config.yaml", "w") as f:
             OmegaConf.save(config_payload, f)
 
-    model_device = _resolve_train_device()
     mixed_precision = _normalize_mixed_precision(cfg.mixed_precision)
     model_dtype = _mixed_precision_to_model_dtype(mixed_precision)
     _seed_model_initialization(int(cfg.seed))

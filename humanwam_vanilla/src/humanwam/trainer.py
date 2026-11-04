@@ -25,9 +25,7 @@ from .models.bottleneck_adapter import (
     load_bottleneck_adapter_payload,
     resolve_bottleneck_base_checkpoint,
     save_bottleneck_adapter,
-    set_bottleneck_adapter_trainable,
-    validate_bottleneck_training_contract,
-)
+    set_bottleneck_adapter_trainable)
 from .models.lora import (
     DEFAULT_MOT_LORA_TARGETS,
     inject_lora_adapters,
@@ -36,10 +34,7 @@ from .models.lora import (
     load_lora_adapter_payload,
     resolve_lora_base_checkpoint,
     save_lora_adapter,
-    set_lora_trainable,
-    validate_lora_training_contract,
-)
-from .training_augmentations import BatchSharedCenterCrop
+    set_lora_trainable)
 from .utils.fs import ensure_dir
 from .utils.deepspeed_resume import refresh_deepspeed_master_params
 from .utils.logging_config import get_logger
@@ -63,7 +58,6 @@ def _parse_bool_config(value, *, name: str) -> bool:
         return True
     if normalized in {"false", "0", "no", "off"}:
         return False
-    raise ValueError(f"{name} must be true or false, got {value!r}")
 
 
 def _parse_auto_bool_config(value, *, name: str) -> bool | None:
@@ -72,8 +66,8 @@ def _parse_auto_bool_config(value, *, name: str) -> bool | None:
     return _parse_bool_config(value, name=name)
 
 
-def _validate_checkpoint_steps(raw_steps, *, max_steps: int) -> tuple[int, ...]:
-    """Normalize a fail-closed sparse checkpoint schedule.
+def _parse_checkpoint_steps(raw_steps, *, max_steps: int) -> tuple[int, ...]:
+    """Parse a sparse checkpoint schedule.
 
     Step zero is intentionally not accepted here: it has different ordering
     semantics and is controlled only by ``save_initial_checkpoint``.
@@ -81,36 +75,10 @@ def _validate_checkpoint_steps(raw_steps, *, max_steps: int) -> tuple[int, ...]:
 
     if raw_steps is None:
         return ()
-    if isinstance(raw_steps, (str, bytes, Mapping)) or not isinstance(
-        raw_steps, Iterable
-    ):
-        raise ValueError(
-            "checkpoint_steps must be a list of strictly increasing integers"
-        )
 
     steps: list[int] = []
     for index, value in enumerate(raw_steps):
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(
-                "checkpoint_steps must contain integers; "
-                f"item {index} is {value!r}"
-            )
         steps.append(int(value))
-
-    if any(step <= 0 for step in steps):
-        raise ValueError(
-            "checkpoint_steps must contain only positive steps; use "
-            "save_initial_checkpoint for step 0"
-        )
-    if any(left >= right for left, right in zip(steps, steps[1:])):
-        raise ValueError(
-            "checkpoint_steps must be unique and strictly increasing, got "
-            f"{steps}"
-        )
-    if any(step > int(max_steps) for step in steps):
-        raise ValueError(
-            f"checkpoint_steps must be <= max_steps={int(max_steps)}, got {steps}"
-        )
     return tuple(steps)
 
 
@@ -171,14 +139,6 @@ class Wan22Trainer:
             name="dataloader_fail_on_latent_cache_miss",
         )
         self.dataloader_pin_memory = torch.cuda.is_available()
-        if self.dataloader_timeout < 0:
-            raise ValueError(f"dataloader_timeout must be >= 0, got {self.dataloader_timeout}")
-        if self.dataloader_prefetch_factor <= 0:
-            raise ValueError(
-                f"dataloader_prefetch_factor must be > 0, got {self.dataloader_prefetch_factor}"
-            )
-        if self.num_workers == 0 and self.dataloader_timeout != 0:
-            raise ValueError("dataloader_timeout must be 0 when num_workers=0")
         self.num_epochs = int(cfg.num_epochs)
         max_steps = cfg.max_steps
         self.max_steps = int(max_steps) if max_steps is not None else None
@@ -195,34 +155,6 @@ class Wan22Trainer:
         self.max_grad_norm = float(cfg.max_grad_norm)
         self.seed = int(cfg.seed)
 
-        crop_cfg = cfg.get("batch_shared_center_crop", {}) or {}
-        self.batch_shared_center_crop_enabled = _parse_bool_config(
-            crop_cfg.get("enabled", False),
-            name="batch_shared_center_crop.enabled",
-        )
-        self.batch_shared_center_crop_verify_across_ranks = _parse_bool_config(
-            crop_cfg.get("verify_across_ranks", True),
-            name="batch_shared_center_crop.verify_across_ranks",
-        )
-        self.batch_shared_center_crop = None
-        if self.batch_shared_center_crop_enabled:
-            self.batch_shared_center_crop = BatchSharedCenterCrop.from_config(
-                crop_cfg,
-                default_seed=self.seed,
-            )
-            if getattr(self.train_dataset, "_video_latent_cache", None) is not None:
-                raise ValueError(
-                    "batch_shared_center_crop requires decoded pixels and is "
-                    "incompatible with a video latent cache"
-                )
-            logger.info(
-                "Batch-shared center crop enabled: widths=%s seed=%d "
-                "verify_across_ranks=%s",
-                list(self.batch_shared_center_crop.allowed_long_edges),
-                self.batch_shared_center_crop.seed,
-                self.batch_shared_center_crop_verify_across_ranks,
-            )
-
         self.resume = cfg.resume
         self._exact_state_resume = bool(
             self.resume and Path(str(self.resume)).is_dir()
@@ -237,11 +169,6 @@ class Wan22Trainer:
             name="resume_skip_proprio_encoder",
         )
         self.mixed_precision = str(cfg.mixed_precision).strip().lower()
-        if self.mixed_precision not in {"no", "fp16", "bf16"}:
-            raise ValueError(
-                f"Unsupported mixed_precision: {cfg.mixed_precision}. "
-                "Expected one of: ['no', 'fp16', 'bf16']."
-            )
         self.wandb_enabled = bool(cfg.wandb.enabled)
 
         # LoRA must be injected before freezing, optimizer construction, and
@@ -271,31 +198,12 @@ class Wan22Trainer:
         self.lora_checkpoint_mode = str(
             lora_cfg.get("checkpoint_mode", "adapter")
         ).strip().lower()
-        if self.lora_checkpoint_mode not in {"adapter", "full"}:
-            raise ValueError(
-                "lora.checkpoint_mode must be 'adapter' or 'full', got "
-                f"{self.lora_checkpoint_mode!r}."
-            )
         self.lora_resume_adapter = str(
             lora_cfg.get("resume_adapter", "") or ""
         ).strip() or None
         self.lora_base_checkpoint = str(
             lora_cfg.get("base_checkpoint", "") or ""
         ).strip() or None
-        self.lora_base_checkpoint_sha256 = str(
-            lora_cfg.get("base_checkpoint_sha256", "") or ""
-        ).strip().lower() or None
-        if self.lora_base_checkpoint_sha256 is not None and (
-            len(self.lora_base_checkpoint_sha256) != 64
-            or any(c not in "0123456789abcdef" for c in self.lora_base_checkpoint_sha256)
-        ):
-            raise ValueError(
-                "lora.base_checkpoint_sha256 must be a 64-character lowercase hex digest."
-            )
-        self.lora_verify_base_sha256 = _parse_bool_config(
-            lora_cfg.get("verify_base_sha256", True),
-            name="lora.verify_base_sha256",
-        )
 
         # Bottleneck adapters are a separate PEFT method and artifact format.
         # Keep them parallel to (rather than hidden under) the historical LoRA
@@ -349,103 +257,18 @@ class Wan22Trainer:
         self.bottleneck_adapter_checkpoint_mode = str(
             bottleneck_cfg.get("checkpoint_mode", "delta")
         ).strip().lower()
-        if self.bottleneck_adapter_checkpoint_mode not in {"delta", "full"}:
-            raise ValueError(
-                "bottleneck_adapter.checkpoint_mode must be 'delta' or 'full', got "
-                f"{self.bottleneck_adapter_checkpoint_mode!r}."
-            )
         self.bottleneck_adapter_resume_delta = str(
             bottleneck_cfg.get("resume_delta", "") or ""
         ).strip() or None
         self.bottleneck_adapter_base_checkpoint = str(
             bottleneck_cfg.get("base_checkpoint", "") or ""
         ).strip() or None
-        self.bottleneck_adapter_base_checkpoint_sha256 = str(
-            bottleneck_cfg.get("base_checkpoint_sha256", "") or ""
-        ).strip().lower() or None
-        if self.bottleneck_adapter_base_checkpoint_sha256 is not None and (
-            len(self.bottleneck_adapter_base_checkpoint_sha256) != 64
-            or any(
-                c not in "0123456789abcdef"
-                for c in self.bottleneck_adapter_base_checkpoint_sha256
-            )
-        ):
-            raise ValueError(
-                "bottleneck_adapter.base_checkpoint_sha256 must be a "
-                "64-character lowercase hex digest."
-            )
-        self.bottleneck_adapter_verify_base_sha256 = _parse_bool_config(
-            bottleneck_cfg.get("verify_base_sha256", True),
-            name="bottleneck_adapter.verify_base_sha256",
-        )
-        if self.lora_enabled and self.bottleneck_adapter_enabled:
-            raise ValueError(
-                "LoRA and bottleneck_adapter are mutually exclusive PEFT methods."
-            )
-        if self.lora_resume_adapter is not None and not self.lora_enabled:
-            raise ValueError("lora.resume_adapter requires lora.enabled=true.")
-        if (
-            self.bottleneck_adapter_resume_delta is not None
-            and not self.bottleneck_adapter_enabled
-        ):
-            raise ValueError(
-                "bottleneck_adapter.resume_delta requires "
-                "bottleneck_adapter.enabled=true."
-            )
-        if (
-            self.resume
-            and is_bottleneck_adapter_checkpoint(self.resume)
-            and not self.bottleneck_adapter_enabled
-        ):
-            raise ValueError(
-                "Resuming a `.bottleneck.pt` delta requires "
-                "bottleneck_adapter.enabled=true."
-            )
-        if (
-            self.lora_resume_adapter is not None
-            and self.resume
-            and Path(str(self.resume)).is_dir()
-        ):
-            raise ValueError(
-                "An exact state-directory resume cannot be combined with "
-                "lora.resume_adapter. Resume the state directory by itself."
-            )
-        if (
-            self.bottleneck_adapter_resume_delta is not None
-            and self.resume
-            and Path(str(self.resume)).is_dir()
-        ):
-            raise ValueError(
-                "An exact state-directory resume cannot be combined with "
-                "bottleneck_adapter.resume_delta. Resume the state directory by itself."
-            )
-        if (
-            self.lora_enabled
-            and self.resume
-            and is_bottleneck_adapter_checkpoint(self.resume)
-        ):
-            raise ValueError(
-                "A `.bottleneck.pt` delta cannot be resumed with lora.enabled=true."
-            )
-        if (
-            self.bottleneck_adapter_enabled
-            and self.resume
-            and is_lora_adapter_checkpoint(self.resume)
-        ):
-            raise ValueError(
-                "A LoRA `.adapter.pt` checkpoint cannot be resumed with "
-                "bottleneck_adapter.enabled=true."
-            )
         if (
             self.lora_enabled
             and self.resume
             and not Path(str(self.resume)).is_dir()
             and is_lora_adapter_checkpoint(self.resume)
         ):
-            if self.lora_resume_adapter is not None:
-                raise ValueError(
-                    "Specify an adapter either as `resume` or `lora.resume_adapter`, not both."
-                )
             self.lora_resume_adapter = str(self.resume)
         elif (
             self.lora_enabled
@@ -462,11 +285,6 @@ class Wan22Trainer:
             and not Path(str(self.resume)).is_dir()
             and is_bottleneck_adapter_checkpoint(self.resume)
         ):
-            if self.bottleneck_adapter_resume_delta is not None:
-                raise ValueError(
-                    "Specify a bottleneck delta either as `resume` or "
-                    "`bottleneck_adapter.resume_delta`, not both."
-                )
             self.bottleneck_adapter_resume_delta = str(self.resume)
         elif (
             self.bottleneck_adapter_enabled
@@ -571,9 +389,6 @@ class Wan22Trainer:
         )
         logger.info("using accelerator.device=%s", self.accelerator.device)
         worker_init_fn = set_global_seed(self.seed, get_worker_init_fn=True)
-        self._assert_dataset_length_consistent(self.train_dataset, "train_dataset")
-        if self.val_dataset is not None:
-            self._assert_dataset_length_consistent(self.val_dataset, "val_dataset")
 
         # Freeze non-trainable modules before optimizer/deepspeed initialization.
         # This keeps DiT (+ optional source-routed state encoders) as trainable
@@ -589,21 +404,7 @@ class Wan22Trainer:
             os.environ.get("FASTWAM_MANUAL_FSDP", "0") == "1"
             and self.accelerator.num_processes > 1
         )
-        if self.dataloader_rank_aware_strict and not self._manual_fsdp:
-            raise ValueError(
-                "dataloader_rank_aware_strict requires multi-process manual FSDP"
-            )
         if self._manual_fsdp:
-            if (
-                os.environ.get("TORCH_COMPILE", "0") == "1"
-                and bool(getattr(getattr(self.model, "mot", None), "compile_blocks", False))
-            ):
-                raise ValueError(
-                    "TORCH_COMPILE=1 (whole-model compile) and "
-                    "model.mot_compile_blocks=true are mutually exclusive. Use the "
-                    "RoboTwin static block compile; whole-loss compile captures the "
-                    "stateful VAE/schedulers and has prohibitive startup latency."
-                )
             self._maybe_preload_weights_for_fsdp()
             self._wrap_model_with_fsdp()
             # Static compilation AFTER FSDP wrap (documented FSDP+compile order;
@@ -614,21 +415,6 @@ class Wan22Trainer:
                 mode = os.environ.get("TORCH_COMPILE_MODE", "default")
                 logger.info("torch.compile: compiling FSDP model (mode=%s)", mode)
                 self.model = torch.compile(self.model, mode=mode)
-        custom_bridge_optimizer = any(
-            (
-                float(cfg.get("optimizer_video_lr_scale", 1.0)) != 1.0,
-                float(cfg.get("optimizer_action_lr_scale", 1.0)) != 1.0,
-                float(cfg.get("optimizer_view_lr_scale", 1.0)) != 1.0,
-                int(cfg.get("optimizer_video_freeze_steps", 0)) > 0,
-            )
-        )
-        if self._manual_fsdp and custom_bridge_optimizer:
-            raise ValueError(
-                "Bridge optimizer parameter groups require non-manual FSDP/ZeRO1; "
-                "the whole-model manual-FSDP wrapper flattens video/action "
-                "parameters before optimizer construction. Launch this experiment "
-                "with FASTWAM_MANUAL_FSDP=0."
-            )
         optimizer_param_groups = self._build_optimizer_param_groups(
             cfg=cfg,
             model=self.model,
@@ -651,29 +437,13 @@ class Wan22Trainer:
         logger.info("AdamW optimizer: fused=%s", optimizer_fused)
 
         self.train_loader = self._build_loader(self.train_dataset, worker_init_fn=worker_init_fn)
-        if self.dataloader_require_merged_cache and getattr(
-            self.train_dataset, "_merged_cache", None
-        ) is None:
-            raise RuntimeError(
-                "dataloader_require_merged_cache=true but the training dataset "
-                "did not activate a merged video cache"
-            )
-        if self.dataloader_require_video_latent_cache and getattr(
-            self.train_dataset, "_video_latent_cache", None
-        ) is None:
-            raise RuntimeError(
-                "dataloader_require_video_latent_cache=true but the training "
-                "dataset did not activate a video latent cache"
-            )
         total_train_steps = self._estimate_total_train_steps()
         self.max_steps = total_train_steps
-        self.checkpoint_steps = _validate_checkpoint_steps(
+        self.checkpoint_steps = _parse_checkpoint_steps(
             raw_checkpoint_steps,
             max_steps=self.max_steps,
         )
         warmup_ratio = float(getattr(cfg, "warmup_ratio", 0.05))
-        if not 0.0 <= warmup_ratio < 1.0:
-            raise ValueError(f"warmup_ratio must be in [0, 1), got {warmup_ratio}.")
         warmup_steps = int(total_train_steps * warmup_ratio)
         self.scheduler = self._build_scheduler(
             scheduler_type=cfg.lr_scheduler_type,
@@ -727,7 +497,6 @@ class Wan22Trainer:
                 type(getattr(self.model, "lr_scheduler", None)).__name__,
             )
         self.optimizer.zero_grad(set_to_none=True)
-        self._gradient_debug_handles = self._register_gradient_debug_hooks()
         self.wandb_run = None
         self._init_wandb()
         self._resume_or_load_checkpoint()
@@ -736,65 +505,10 @@ class Wan22Trainer:
         val_size = len(self.val_dataset) if self.val_dataset is not None else len(self.train_dataset)
         logger.info("Train/val dataset size: %d/%d", len(self.train_dataset), val_size)
 
-    def _register_gradient_debug_hooks(self):
-        """Fail inside backward at the first parameter receiving a non-finite gradient.
-
-        DeepSpeed's BF16 optimizer computes and validates the global norm inside
-        ``engine.step()``, which Accelerate invokes from ``backward()``.  A normal
-        post-backward check therefore runs too late to identify the offending
-        parameter.  Keep this opt-in because checking every parameter introduces
-        a device synchronization per gradient tensor.
-        """
-        if os.environ.get("FASTWAM_GRADIENT_DEBUG", "0") != "1":
-            return []
-
-        handles = []
-        hooked = 0
-
-        def make_hook(parameter_name):
-            def check_gradient(grad):
-                if grad is None:
-                    return grad
-                finite = torch.isfinite(grad)
-                if bool(finite.all().item()):
-                    return grad
-                bad = int((~finite).sum().item())
-                finite_values = grad.detach()[finite].float()
-                finite_min = (
-                    float(finite_values.min().item()) if finite_values.numel() else float("nan")
-                )
-                finite_max = (
-                    float(finite_values.max().item()) if finite_values.numel() else float("nan")
-                )
-                raise FloatingPointError(
-                    "FASTWAM_GRADIENT_DEBUG non-finite parameter gradient: "
-                    f"name={parameter_name} rank={self.accelerator.process_index} "
-                    f"shape={tuple(grad.shape)} dtype={grad.dtype} "
-                    f"bad={bad}/{grad.numel()} finite_min={finite_min:.9g} "
-                    f"finite_max={finite_max:.9g}"
-                )
-
-            return check_gradient
-
-        for name, parameter in self.model.named_parameters():
-            if parameter.requires_grad:
-                handles.append(parameter.register_hook(make_hook(name)))
-                hooked += 1
-        logger.warning(
-            "FASTWAM_GRADIENT_DEBUG=1: registered non-finite checks on %d trainable parameters.",
-            hooked,
-        )
-        return handles
-
     def _init_wandb(self):
         if not self.wandb_enabled or not self.accelerator.is_main_process:
             return
-        try:
-            import wandb
-        except ImportError as e:
-            raise ImportError(
-                "wandb logging is enabled in config (`wandb.enabled=true`) but wandb is not installed."
-            ) from e
+        import wandb
 
         self.wandb_run = wandb.init(
             entity=self.cfg.wandb.workspace,
@@ -877,18 +591,8 @@ class Wan22Trainer:
         epoch_sensitive = callable(getattr(dataset, "set_epoch", None))
         configured = self.dataloader_persistent_workers
         if self.num_workers <= 0:
-            if configured is True:
-                raise ValueError(
-                    "dataloader_persistent_workers=true requires num_workers > 0"
-                )
             return False, epoch_sensitive
         if epoch_sensitive:
-            if configured is True:
-                raise ValueError(
-                    "dataloader_persistent_workers=true is unsafe for a dataset "
-                    "that exposes set_epoch(); use auto/false until epoch state is "
-                    "shared with persistent worker copies"
-                )
             return False, True
         if configured is None:
             return True, False
@@ -901,32 +605,9 @@ class Wan22Trainer:
         if callable(dataset_set_epoch):
             dataset_set_epoch(epoch)
 
-    def _assert_dataset_length_consistent(self, dataset, dataset_name: str):
-        if not hasattr(dataset, "__len__"):
-            raise TypeError(f"`{dataset_name}` must implement __len__ for rank consistency checks.")
-
-        local_length = len(dataset)
-        gathered_lengths = self.accelerator.gather(
-            torch.tensor([local_length], device=self.accelerator.device, dtype=torch.int64)
-        ).reshape(-1)
-        if torch.all(gathered_lengths == gathered_lengths[0]):
-            return
-
-        if self.accelerator.is_main_process:
-            print(f"[dataset-check] {dataset_name} length mismatch across ranks after initialization:")
-            for rank, rank_length in enumerate(gathered_lengths.cpu().tolist()):
-                print(f"rank {rank}: {rank_length}")
-        self.accelerator.wait_for_everyone()
-        raise RuntimeError(
-            f"{dataset_name} length mismatch across ranks: {gathered_lengths.cpu().tolist()}"
-        )
-
     def _estimate_total_train_steps(self) -> int:
         if self.max_steps is not None:
             return max(int(self.max_steps), 1)
-
-        if not hasattr(self.train_dataset, "__len__"):
-            raise TypeError("`train_dataset` must implement __len__ when `max_steps` is None.")
 
         num_processes = max(int(self.accelerator.num_processes), 1)
         global_batch_size = max(self.batch_size * num_processes, 1)
@@ -950,18 +631,11 @@ class Wan22Trainer:
                 eta_min=self.learning_rate * 0.01,
             )
         elif scheduler_type == "cosine_floor":
-            if floor_lr is None:
-                raise ValueError("cosine_floor requires an explicit lr_floor")
             main_scheduler = FloorCosineLR(
                 self.optimizer, T_max=remaining_steps, floor_lr=floor_lr,
             )
         elif scheduler_type == "constant":
             main_scheduler = ConstantLR(self.optimizer, factor=1.0, total_iters=remaining_steps)
-        else:
-            raise ValueError(
-                f"Unsupported lr_scheduler_type: {scheduler_type}. "
-                "Expected one of: ['cosine', 'cosine_floor', 'constant']."
-            )
 
         if warmup_steps <= 0:
             return main_scheduler
@@ -992,78 +666,36 @@ class Wan22Trainer:
         """Resolve the weights artifact paired with an exact state directory."""
 
         weights_dir = state_dir.parent.parent / "weights"
-        adapter_path = weights_dir / f"{state_dir.name}.adapter.pt"
-        bottleneck_path = weights_dir / f"{state_dir.name}.bottleneck.pt"
-        full_path = weights_dir / f"{state_dir.name}.pt"
         if self.lora_enabled and self.lora_checkpoint_mode == "adapter":
-            if adapter_path.is_file():
-                return adapter_path
-            raise FileNotFoundError(
-                "LoRA training state is complete but its paired adapter is missing: "
-                f"{adapter_path}"
-            )
-        if (
-            bool(getattr(self, "bottleneck_adapter_enabled", False))
-            and getattr(self, "bottleneck_adapter_checkpoint_mode", None) == "delta"
-        ):
-            if bottleneck_path.is_file():
-                return bottleneck_path
-            raise FileNotFoundError(
-                "Bottleneck-adapter training state is complete but its paired "
-                f"delta is missing: {bottleneck_path}"
-            )
-        if full_path.is_file():
-            return full_path
-        raise FileNotFoundError(
-            f"Training state is complete but its paired model weights are missing: {full_path}"
-        )
+            suffix = ".adapter.pt"
+        elif self.bottleneck_adapter_enabled and self.bottleneck_adapter_checkpoint_mode == "delta":
+            suffix = ".bottleneck.pt"
+        else:
+            suffix = ".pt"
+        return weights_dir / f"{state_dir.name}{suffix}"
+
 
     def _resolve_lora_adapter_contract(
         self, adapter_path: str | Path
     ) -> tuple[dict[str, object], dict[str, object], Path]:
-        if not self.lora_enabled:
-            raise ValueError("Cannot load a LoRA adapter when lora.enabled=false.")
         payload = load_lora_adapter_payload(adapter_path)
-        metadata = validate_lora_training_contract(
-            payload,
-            rank=self.lora_rank,
-            alpha=self.lora_alpha,
-            experts=self.lora_experts,
-            target_modules=self.lora_target_modules,
-            trainable_modules=self.lora_trainable_modules,
-        )
-        binding = metadata["base_checkpoint"]
-        recorded_sha256 = str(binding.get("sha256", "")).strip().lower() or None
-        if (
-            self.lora_base_checkpoint_sha256 is not None
-            and recorded_sha256 != self.lora_base_checkpoint_sha256
-        ):
-            raise ValueError(
-                "Configured and adapter-recorded base SHA-256 differ: "
-                f"configured={self.lora_base_checkpoint_sha256} "
-                f"adapter={recorded_sha256}."
-            )
+        metadata = payload["metadata"]
         base_path = resolve_lora_base_checkpoint(
             payload,
             override=self.lora_base_checkpoint,
-            allow_path_override=False,
-            verify_sha256=self.lora_verify_base_sha256,
         )
         self.lora_base_checkpoint = str(base_path.resolve())
-        self.lora_base_checkpoint_sha256 = recorded_sha256
         return payload, dict(metadata), base_path
 
     def _load_lora_base_and_adapter(self, model, adapter_path: str | Path) -> None:
-        """Load the bound full base first, then the small adapter, with audits."""
+        """Load the bound full base first, then the small adapter."""
 
         payload, metadata, base_path = self._resolve_lora_adapter_contract(adapter_path)
-        recorded_sha256 = self.lora_base_checkpoint_sha256
         logger.info(
-            "Loading LoRA base then adapter | base=%s adapter=%s adapter_step=%s sha256=%s",
+            "Loading LoRA base then adapter | base=%s adapter=%s adapter_step=%s",
             base_path,
             adapter_path,
             metadata.get("step"),
-            recorded_sha256 or "not-recorded",
         )
         model.load_checkpoint(
             str(base_path),
@@ -1079,50 +711,13 @@ class Wan22Trainer:
         *,
         expected_step: int | None = None,
     ) -> tuple[dict[str, object], dict[str, object], Path]:
-        if not self.bottleneck_adapter_enabled:
-            raise ValueError(
-                "Cannot load a bottleneck delta when "
-                "bottleneck_adapter.enabled=false."
-            )
         payload = load_bottleneck_adapter_payload(adapter_path)
-        metadata = validate_bottleneck_training_contract(
-            payload,
-            experts=self.bottleneck_adapter_experts,
-            sites=self.bottleneck_adapter_sites,
-            bottleneck_dims=self.bottleneck_adapter_dims,
-            activation=self.bottleneck_adapter_activation,
-            dropout=self.bottleneck_adapter_dropout,
-            residual_scale=self.bottleneck_adapter_residual_scale,
-            init_seed=self.bottleneck_adapter_init_seed,
-            trainable_modules=self.bottleneck_adapter_trainable_modules,
-        )
-        if expected_step is not None:
-            observed_step = int(metadata.get("step", -1))
-            if observed_step != int(expected_step):
-                raise ValueError(
-                    "Paired bottleneck delta/training-state step mismatch: "
-                    f"delta={observed_step} state={int(expected_step)}."
-                )
-        binding = metadata["base_checkpoint"]
-        recorded_sha256 = str(binding.get("sha256", "")).strip().lower() or None
-        if (
-            self.bottleneck_adapter_base_checkpoint_sha256 is not None
-            and recorded_sha256
-            != self.bottleneck_adapter_base_checkpoint_sha256
-        ):
-            raise ValueError(
-                "Configured and bottleneck-delta-recorded base SHA-256 differ: "
-                f"configured={self.bottleneck_adapter_base_checkpoint_sha256} "
-                f"adapter={recorded_sha256}."
-            )
+        metadata = payload["metadata"]
         base_path = resolve_bottleneck_base_checkpoint(
             payload,
             override=self.bottleneck_adapter_base_checkpoint,
-            allow_path_override=False,
-            verify_sha256=self.bottleneck_adapter_verify_base_sha256,
         )
         self.bottleneck_adapter_base_checkpoint = str(base_path.resolve())
-        self.bottleneck_adapter_base_checkpoint_sha256 = recorded_sha256
         return payload, dict(metadata), base_path
 
     def _load_bottleneck_base_and_adapter(
@@ -1140,11 +735,10 @@ class Wan22Trainer:
         )
         logger.info(
             "Loading bottleneck base then delta | base=%s delta=%s "
-            "adapter_step=%s sha256=%s",
+            "adapter_step=%s",
             base_path,
             adapter_path,
             metadata.get("step"),
-            self.bottleneck_adapter_base_checkpoint_sha256 or "not-recorded",
         )
         model.load_checkpoint(
             str(base_path),
@@ -1197,11 +791,6 @@ class Wan22Trainer:
             ):
                 paired_delta = self._paired_weights_checkpoint(resume_path)
                 trainer_state_path = resume_path / "trainer_state.json"
-                if not trainer_state_path.is_file():
-                    raise FileNotFoundError(
-                        "Exact bottleneck-adapter resume requires trainer_state.json: "
-                        f"{trainer_state_path}"
-                    )
                 expected_step = int(
                     json.loads(trainer_state_path.read_text())["global_step"]
                 )
@@ -1212,8 +801,6 @@ class Wan22Trainer:
             logger.info("Resuming full training state from directory: %s", resume)
             self.load_training_state(str(resume_path))
             return
-        if not resume_path.exists():
-            raise FileNotFoundError(f"Resume checkpoint not found: {resume}")
         logger.info("Loading weight checkpoint only: %s", resume)
         self._unwrap_model().load_checkpoint(
             str(resume_path),
@@ -1229,44 +816,6 @@ class Wan22Trainer:
             return
         result = refresh_deepspeed_master_params(self.model)
         logger.info("DeepSpeed weights-only master refresh: %s", result)
-        audit_dir = os.environ.get("FASTWAM_WEIGHTS_FIRST_STEP_AUDIT_DIR")
-        if audit_dir:
-            # Opt-in launch verification for a fresh, low-LR transfer. Samples
-            # span every trainable tensor, not only the action IO interfaces.
-            probes = {}
-            for name, param in self._unwrap_model().named_parameters():
-                if param.requires_grad and param.numel():
-                    indices = torch.linspace(0, param.numel() - 1, min(64, param.numel()),
-                                             device=param.device, dtype=torch.float64).long()
-                    probes[name] = (indices, param.detach().reshape(-1)[indices].float().cpu())
-            self._weights_first_step_probes = probes
-            self._weights_first_step_refresh = result
-
-    def _verify_weights_after_first_step(self):
-        probes = getattr(self, "_weights_first_step_probes", None)
-        if not probes:
-            return
-        parameters = dict(self._unwrap_model().named_parameters())
-        deltas = {}
-        for name, (indices, before) in probes.items():
-            after = parameters[name].detach().reshape(-1)[indices].float().cpu()
-            deltas[name] = float((after - before).abs().max())
-        threshold = float(os.environ.get("FASTWAM_WEIGHTS_FIRST_STEP_MAX_DELTA", "0.01"))
-        maximum = max(deltas.values())
-        passed = all(np.isfinite(v) and v <= threshold for v in deltas.values())
-        flags = self.accelerator.gather(torch.tensor([int(passed)], device=self.accelerator.device))
-        record = {"status": "PASS" if passed else "FAIL", "step": self.global_step,
-                  "rank": self.accelerator.process_index, "tensor_probes": len(probes),
-                  "max_abs_delta": maximum, "threshold": threshold,
-                  "master_refresh": self._weights_first_step_refresh, "deltas": deltas}
-        out = Path(os.environ["FASTWAM_WEIGHTS_FIRST_STEP_AUDIT_DIR"])
-        out.mkdir(parents=True, exist_ok=True)
-        (out / f"rank_{self.accelerator.process_index:02d}.json").write_text(json.dumps(record, indent=2) + "\n")
-        del self._weights_first_step_probes
-        if not bool(flags.all().item()):
-            raise RuntimeError("Loaded weights changed excessively on first optimizer step; see first-step audit")
-        logger.info("Weights first optimizer step audit PASS: rank=%d tensors=%d max_delta=%g",
-                    self.accelerator.process_index, len(probes), maximum)
 
     def _apply_resume_step(self):
         """Weights-only resume that INHERITS the LR schedule.
@@ -1282,8 +831,6 @@ class Wan22Trainer:
         step = int(getattr(self, "resume_step", 0) or 0)
         if step <= 0:
             return
-        if self.max_steps is not None and step >= self.max_steps:
-            raise ValueError(f"resume_step={step} must be < max_steps={self.max_steps}.")
         self.global_step = step
         self.epoch = 0
         # A weights-only continuation must advance the deterministic sampler as
@@ -1336,7 +883,7 @@ class Wan22Trainer:
             return
         resume_path = Path(str(resume))
         if resume_path.is_dir():
-            manifest = self._validate_manual_fsdp_state_dir(resume_path)
+            manifest = self._read_manual_fsdp_state_dir(resume_path)
             weights_path = self._paired_weights_checkpoint(resume_path)
             logger.info(
                 "Manual FSDP full-state resume: pre-wrap model load weights=%s "
@@ -1362,8 +909,6 @@ class Wan22Trainer:
                     skip_proprio_encoder=self.resume_skip_proprio_encoder,
                 )
             return
-        if not resume_path.exists():
-            raise FileNotFoundError(f"Resume checkpoint not found: {resume}")
         logger.info("FSDP pre-wrap weights load: %s", resume_path)
         self.model.load_checkpoint(
             str(resume_path),
@@ -1415,52 +960,9 @@ class Wan22Trainer:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _validate_manual_fsdp_state_dir(self, state_dir: Path) -> dict:
+    def _read_manual_fsdp_state_dir(self, state_dir: Path) -> dict:
         manifest_path = state_dir / "manual_fsdp_state.json"
-        if not manifest_path.is_file():
-            raise RuntimeError(
-                "Manual FSDP state predates per-rank optimizer checkpointing and is "
-                f"not exactly resumable: {state_dir}. Missing {manifest_path.name}."
-            )
         manifest = json.loads(manifest_path.read_text())
-        if manifest.get("format") != _MANUAL_FSDP_STATE_FORMAT:
-            raise RuntimeError(
-                f"Unsupported manual FSDP state format in {manifest_path}: "
-                f"{manifest.get('format')!r}"
-            )
-        expected_world_size = int(self.accelerator.num_processes)
-        observed_world_size = int(manifest.get("world_size", -1))
-        if observed_world_size != expected_world_size:
-            raise RuntimeError(
-                "Manual FSDP optimizer shards require the same world size: "
-                f"checkpoint={observed_world_size} current={expected_world_size}"
-            )
-        expected_sharding = os.environ.get("FSDP_SHARDING", "SHARD_GRAD_OP")
-        if manifest.get("sharding_strategy") != expected_sharding:
-            raise RuntimeError(
-                "Manual FSDP optimizer shards require the same sharding strategy: "
-                f"checkpoint={manifest.get('sharding_strategy')!r} "
-                f"current={expected_sharding!r}"
-            )
-        required = [
-            state_dir / "scheduler.bin",
-            state_dir / "trainer_state.json",
-        ]
-        if bool(manifest.get("has_scaler", False)):
-            required.append(state_dir / "scaler.bin")
-        for rank in range(expected_world_size):
-            required.extend(
-                [
-                    self._manual_fsdp_optimizer_path(state_dir, rank),
-                    self._manual_fsdp_optimizer_meta_path(state_dir, rank),
-                    state_dir / f"random_states_{rank}.pkl",
-                ]
-            )
-        missing = [str(path) for path in required if not path.is_file()]
-        if missing:
-            raise FileNotFoundError(
-                "Incomplete manual FSDP full state; missing: " + ", ".join(missing)
-            )
         return manifest
 
     def _wrap_model_with_fsdp(self):
@@ -1590,18 +1092,6 @@ class Wan22Trainer:
         action_scale = float(cfg.get("optimizer_action_lr_scale", 1.0))
         view_scale = float(cfg.get("optimizer_view_lr_scale", 1.0))
         video_freeze_steps = int(cfg.get("optimizer_video_freeze_steps", 0))
-        for name, value in (
-            ("optimizer_video_lr_scale", video_scale),
-            ("optimizer_action_lr_scale", action_scale),
-            ("optimizer_view_lr_scale", view_scale),
-        ):
-            if value < 0.0:
-                raise ValueError(f"{name} must be >= 0, got {value}.")
-        if video_freeze_steps < 0:
-            raise ValueError(
-                "optimizer_video_freeze_steps must be >= 0, got "
-                f"{video_freeze_steps}."
-            )
 
         named_trainable = []
         seen = set()
@@ -1610,8 +1100,6 @@ class Wan22Trainer:
                 continue
             seen.add(id(parameter))
             named_trainable.append((name, parameter))
-        if not named_trainable:
-            raise ValueError("No trainable parameters remain after DiT-only freezing.")
 
         custom_groups = any(
             value != 1.0 for value in (video_scale, action_scale, view_scale)
@@ -1712,85 +1200,42 @@ class Wan22Trainer:
         context_mask = sample.get("context_mask", None)
         video_layout = sample.get("video_layout", "pixel")
         if isinstance(video_layout, (list, tuple)):
-            if len(video_layout) != 1:
-                raise ValueError(
-                    f"Expected one eval video layout, got {video_layout!r}."
-                )
             video_layout = video_layout[0]
         video_layout = str(video_layout)
-
-        if not isinstance(video, torch.Tensor):
-            raise TypeError(
-                f"Expected tensor video for evaluation, got {type(video)}. "
-                "Evaluation now expects `video` with shape [3,T,H,W] or [B,3,T,H,W]."
-            )
         if video_layout in {
             "robotwin_latent_tshape",
             "robotwin_multiview_tokens",
         }:
             if video.ndim == 5:
                 video = video.unsqueeze(0)
-            if video.ndim != 6 or video.shape[1] != 3 or video.shape[2] != 3:
-                raise ValueError(
-                    "Expected separate-view video [3views,3,T,H,W] or "
-                    f"[B,3views,3,T,H,W], got {tuple(video.shape)}."
-                )
-            num_video_frames = video.shape[3]
         else:
             if video.ndim == 4:
                 video = video.unsqueeze(0)
-            if video.ndim != 5:
-                raise ValueError(f"Expected video shape [3,T,H,W] or [B,3,T,H,W], got {tuple(video.shape)}")
-            num_video_frames = video.shape[2]
-        if num_video_frames <= 1:
-            raise ValueError(f"`sample['video']` must have at least 2 frames for action evaluation, got {num_video_frames}")
 
         if isinstance(prompt, str):
             prompt = [prompt]
         elif isinstance(prompt, tuple):
             prompt = list(prompt)
-        elif not isinstance(prompt, list):
-            raise TypeError(f"Expected prompt type str/list[str], got {type(prompt)}")
-        if len(prompt) != video.shape[0]:
-            raise ValueError(f"Prompt batch mismatch: len(prompt)={len(prompt)} vs video batch={video.shape[0]}")
 
         action_horizon = None
         action = None
         if "action" in sample:
             action = sample["action"]
-            if not isinstance(action, torch.Tensor):
-                raise TypeError(
-                    f"`sample['action']` must be a torch.Tensor, got {type(action)}"
-                )
             if action.ndim == 2:
                 action = action.unsqueeze(0)
-            if action.ndim != 3:
-                raise ValueError(f"`sample['action']` must be 3D [B, T, a_dim], got shape {tuple(action.shape)}")
-            if action.shape[1] % (num_video_frames - 1) != 0:
-                raise ValueError(f"`sample['action']` temporal dimension must be divisible by video frames-1={num_video_frames - 1}, got {action.shape[1]}")
             action_horizon = int(action.shape[1])
 
         proprio = None
         if "proprio" in sample:
             proprio = sample["proprio"]
-            if not isinstance(proprio, torch.Tensor):
-                raise TypeError(f"`sample['proprio']` must be a torch.Tensor, got {type(proprio)}")
             if proprio.ndim == 2:
                 proprio = proprio.unsqueeze(0)
-            if proprio.ndim != 3:
-                raise ValueError(f"`sample['proprio']` must be 3D [B, T, d], got shape {tuple(proprio.shape)}")
 
         if context is not None or context_mask is not None:
-            if context is None or context_mask is None:
-                raise ValueError("`context` and `context_mask` must both exist in eval sample.")
             if context.ndim == 2:
                 context = context.unsqueeze(0)
             if context_mask.ndim == 1:
                 context_mask = context_mask.unsqueeze(0)
-            if context.ndim != 3 or context_mask.ndim != 2:
-                raise ValueError(
-                    f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
-                )
 
         goal_image = sample.get("goal_image", None)
         if goal_image is not None and goal_image.ndim == 3:
@@ -1892,19 +1337,12 @@ class Wan22Trainer:
         pred_video_tensor = pil_frames_to_video_tensor(pred_video)
         gt_video_tensor = ((gt_video0.detach().float().cpu().clamp(-1.0, 1.0) + 1.0) * 0.5).contiguous()
 
-        assert pred_video_tensor.shape == gt_video_tensor.shape, (
-            "Eval infer prediction/GT shape mismatch: "
-            f"pred={tuple(pred_video_tensor.shape)} vs gt={tuple(gt_video_tensor.shape)}"
-        )
-
         psnr_rollout_vs_gt = video_psnr(pred=pred_video_tensor, target=gt_video_tensor)
         ssim_rollout_vs_gt = video_ssim(pred=pred_video_tensor, target=gt_video_tensor)
 
         action_l1 = None
         action_l2 = None
         if action is not None and pred_action is not None:
-            if sample["proprio"] is None:
-                raise ValueError("Eval sample must contain `proprio` for action denormalization.")
             proprio = sample["proprio"].detach().to(device="cpu", dtype=torch.float32)
 
             processor = self.val_dataset.lerobot_dataset.processor
@@ -1913,16 +1351,10 @@ class Wan22Trainer:
             action_meta = processor.shape_meta["action"]
             state_meta = processor.shape_meta["state"]
             for action_name, raw_action in (("pred", pred_action), ("gt", action)):
-                if not isinstance(raw_action, torch.Tensor):
-                    raise TypeError(f"{action_name} action must be a torch.Tensor, got {type(raw_action)}")
                 if raw_action.ndim == 2:
                     action_btd = raw_action.unsqueeze(0)
                 elif raw_action.ndim == 3 and raw_action.shape[0] == 1:
                     action_btd = raw_action
-                else:
-                    raise ValueError(
-                        f"{action_name} action must have shape [T, D] or [1, T, D], got {tuple(raw_action.shape)}"
-                    )
                 action_btd = action_btd.detach().to(device="cpu", dtype=torch.float32)
 
                 batch = {
@@ -1937,20 +1369,10 @@ class Wan22Trainer:
                 }
                 merged_batch = processor.action_state_merger.forward(merged_batch)
                 denorm_action = merged_batch["action"].unsqueeze(0)
-                if denorm_action.ndim != 3 or denorm_action.shape[0] != 1:
-                    raise ValueError(
-                        f"Denormalized {action_name} action must have shape [1, T, D], got {tuple(denorm_action.shape)}"
-                    )
                 denorm_actions[action_name] = denorm_action
 
             pred_action_denorm = denorm_actions["pred"]
             gt_action_denorm = denorm_actions["gt"]
-
-            if pred_action_denorm.shape != gt_action_denorm.shape:
-                raise ValueError(
-                    "Predicted action/GT action shape mismatch after denormalization: "
-                    f"pred={tuple(pred_action_denorm.shape)} vs gt={tuple(gt_action_denorm.shape)}"
-                )
             action_diff = pred_action_denorm - gt_action_denorm
             action_l1 = action_diff.abs().mean().item()
             action_l2 = action_diff.pow(2).mean().item()
@@ -1960,11 +1382,6 @@ class Wan22Trainer:
         vae_latents = model._encode_video_latents(gt_video_batch, tiled=False)
         vae_recon_video = model._decode_latents(vae_latents, tiled=False)
         vae_video_tensor = pil_frames_to_video_tensor(vae_recon_video)
-
-        assert vae_video_tensor.shape == gt_video_tensor.shape, (
-            "Eval VAE reconstruction/GT shape mismatch: "
-            f"vae={tuple(vae_video_tensor.shape)} vs gt={tuple(gt_video_tensor.shape)}"
-        )
 
         psnr_decode_vs_gt = video_psnr(pred=vae_video_tensor, target=gt_video_tensor)
         ssim_decode_vs_gt = video_ssim(pred=vae_video_tensor, target=gt_video_tensor)
@@ -2027,24 +1444,8 @@ class Wan22Trainer:
         return result
 
     def _lora_checkpoint_metadata(self) -> dict[str, object]:
-        if not self.lora_base_checkpoint:
-            raise RuntimeError(
-                "Refusing to save an unbound LoRA adapter: no full base checkpoint "
-                "was recorded. Initialize LoRA post-training through cfg.resume or "
-                "set lora.base_checkpoint explicitly."
-            )
         base_path = Path(self.lora_base_checkpoint).expanduser()
-        if not base_path.is_file():
-            raise FileNotFoundError(
-                f"Refusing to save LoRA adapter; bound base checkpoint is missing: {base_path}"
-            )
-        if is_lora_adapter_checkpoint(base_path):
-            raise ValueError(
-                f"LoRA base binding must point to a full checkpoint, not an adapter: {base_path}"
-            )
         base_binding: dict[str, object] = {"path": str(base_path.resolve())}
-        if self.lora_base_checkpoint_sha256 is not None:
-            base_binding["sha256"] = self.lora_base_checkpoint_sha256
         return {
             "base_checkpoint": base_binding,
             "rank": int(self.lora_rank),
@@ -2058,30 +1459,8 @@ class Wan22Trainer:
         }
 
     def _bottleneck_adapter_checkpoint_metadata(self) -> dict[str, object]:
-        if not self.bottleneck_adapter_base_checkpoint:
-            raise RuntimeError(
-                "Refusing to save an unbound bottleneck delta: no full base "
-                "checkpoint was recorded. Initialize post-training through "
-                "cfg.resume or set bottleneck_adapter.base_checkpoint explicitly."
-            )
         base_path = Path(self.bottleneck_adapter_base_checkpoint).expanduser()
-        if not base_path.is_file():
-            raise FileNotFoundError(
-                "Refusing to save bottleneck delta; bound base checkpoint is "
-                f"missing: {base_path}"
-            )
-        if is_lora_adapter_checkpoint(base_path) or is_bottleneck_adapter_checkpoint(
-            base_path
-        ):
-            raise ValueError(
-                "Bottleneck base binding must point to a full checkpoint, not a "
-                f"PEFT delta: {base_path}"
-            )
         base_binding: dict[str, object] = {"path": str(base_path.resolve())}
-        if self.bottleneck_adapter_base_checkpoint_sha256 is not None:
-            base_binding["sha256"] = (
-                self.bottleneck_adapter_base_checkpoint_sha256
-            )
         return {
             "base_checkpoint": base_binding,
             "experts": list(self.bottleneck_adapter_experts),
@@ -2106,8 +1485,6 @@ class Wan22Trainer:
             bool(getattr(self, "bottleneck_adapter_enabled", False))
             and getattr(self, "bottleneck_adapter_checkpoint_mode", None) == "delta"
         )
-        if lora_adapter_only and bottleneck_delta_only:
-            raise RuntimeError("Multiple PEFT delta checkpoint modes are active.")
         if lora_adapter_only:
             suffix = ".adapter.pt"
         elif bottleneck_delta_only:
@@ -2229,18 +1606,8 @@ class Wan22Trainer:
         self.accelerator.wait_for_everyone()
 
     def _load_manual_fsdp_training_state(self, state_dir: Path) -> None:
-        manifest = self._validate_manual_fsdp_state_dir(state_dir)
+        manifest = self._read_manual_fsdp_state_dir(state_dir)
         rank = int(self.accelerator.process_index)
-
-        optimizer_meta = json.loads(
-            self._manual_fsdp_optimizer_meta_path(state_dir, rank).read_text()
-        )
-        current_layout = self._optimizer_layout()
-        if optimizer_meta.get("layout") != current_layout:
-            raise RuntimeError(
-                "Manual FSDP optimizer parameter layout changed; exact resume is unsafe: "
-                f"rank={rank} checkpoint={state_dir}"
-            )
 
         optimizer_state = torch.load(
             self._manual_fsdp_optimizer_path(state_dir, rank),
@@ -2250,24 +1617,11 @@ class Wan22Trainer:
         self.optimizer.load_state_dict(optimizer_state)
         del optimizer_state
 
-        raw_optimizer = getattr(self.optimizer, "optimizer", self.optimizer)
-        for parameter, parameter_state in raw_optimizer.state.items():
-            for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
-                tensor = parameter_state.get(key)
-                if tensor is not None and tensor.shape != parameter.shape:
-                    raise RuntimeError(
-                        "Loaded Adam moment does not match its local FSDP parameter shard: "
-                        f"rank={rank} key={key} moment={tuple(tensor.shape)} "
-                        f"parameter={tuple(parameter.shape)}"
-                    )
-
         scheduler_state = torch.load(
             state_dir / "scheduler.bin", map_location="cpu", weights_only=False
         )
         self.scheduler.load_state_dict(scheduler_state)
         if bool(manifest.get("has_scaler", False)):
-            if self.accelerator.scaler is None:
-                raise RuntimeError("Checkpoint has a GradScaler but the current run does not.")
             scaler_state = torch.load(
                 state_dir / "scaler.bin", map_location="cpu", weights_only=False
             )
@@ -2405,9 +1759,6 @@ class Wan22Trainer:
     def train(self):
         self._set_dit_only_train_mode()
 
-        if self.max_steps is None:
-            raise ValueError("`max_steps` must be set before entering the while-step training loop.")
-
         self._maybe_save_initial_checkpoint()
 
         logger.info("Starting training with max_steps=%d.", self.max_steps)
@@ -2477,8 +1828,6 @@ class Wan22Trainer:
             with path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(payload, sort_keys=True) + "\n")
                 stream.flush()
-
-        _FAIL_ON_NONFINITE = os.environ.get("FASTWAM_FAIL_ON_NONFINITE", "1") == "1"
         _SYNC_AFTER_BACKWARD = os.environ.get(
             "FASTWAM_SYNC_AFTER_BACKWARD",
             "1" if self._manual_fsdp else "0",
@@ -2487,11 +1836,6 @@ class Wan22Trainer:
         _SKIP_DIAGNOSTIC_CHECKPOINT = os.environ.get(
             "FASTWAM_DIAGNOSTIC_SKIP_CHECKPOINT", "0"
         ) == "1"
-        if _SKIP_DIAGNOSTIC_CHECKPOINT and _STOP_AFTER_RUN_STEPS <= 0:
-            raise ValueError(
-                "FASTWAM_DIAGNOSTIC_SKIP_CHECKPOINT=1 requires "
-                "FASTWAM_STOP_AFTER_RUN_STEPS to be positive"
-            )
         _diagnostic_stop_step = (
             self.run_start_step + _STOP_AFTER_RUN_STEPS
             if _STOP_AFTER_RUN_STEPS > 0
@@ -2549,26 +1893,6 @@ class Wan22Trainer:
                     .item()
                 )
                 _pyav_calls += pyav_calls
-                if self.dataloader_fail_on_cache_miss and cache_misses:
-                    raise RuntimeError(
-                        "merged-cache production gate failed: "
-                        f"hits={cache_hits} misses={cache_misses} "
-                        f"global_step={self.global_step}"
-                    )
-                if self.dataloader_fail_on_cache_miss and pyav_calls:
-                    raise RuntimeError(
-                        "zero-PyAV production gate failed: "
-                        f"calls={pyav_calls} global_step={self.global_step}"
-                    )
-                if (
-                    self.dataloader_fail_on_latent_cache_miss
-                    and latent_cache_misses
-                ):
-                    raise RuntimeError(
-                        "video-latent-cache production gate failed: "
-                        f"hits={latent_cache_hits} misses={latent_cache_misses} "
-                        f"global_step={self.global_step}"
-                    )
                 _data_elapsed = time.perf_counter() - _td0
                 _prof["data"] += _data_elapsed
                 _h2d_elapsed = 0.0
@@ -2578,39 +1902,6 @@ class Wan22Trainer:
                 _optimizer_cuda_ms = 0.0
                 _post_step_barrier = 0.0
                 self.batch_in_epoch += 1
-                batch_crop_width = None
-                if self.batch_shared_center_crop is not None:
-                    video = sample.get("video")
-                    if video is None:
-                        if sample.get("video_latents") is not None:
-                            raise RuntimeError(
-                                "batch_shared_center_crop cannot crop precomputed "
-                                "video latents"
-                            )
-                        raise RuntimeError(
-                            "batch_shared_center_crop is enabled but the batch has "
-                            "no `video` tensor"
-                        )
-                    batch_crop_width = self.batch_shared_center_crop.long_edge_for_batch(
-                        epoch=self.epoch,
-                        batch_in_epoch=self.batch_in_epoch,
-                    )
-                    sample["video"] = self.batch_shared_center_crop.apply(
-                        video,
-                        long_edge=batch_crop_width,
-                    )
-                    if self.batch_shared_center_crop_verify_across_ranks:
-                        local_crop_width = torch.tensor(
-                            [batch_crop_width],
-                            device=self.accelerator.device,
-                            dtype=torch.int64,
-                        )
-                        crop_widths = self.accelerator.gather(local_crop_width).reshape(-1)
-                        if not bool(torch.all(crop_widths == crop_widths[0]).item()):
-                            raise RuntimeError(
-                                "batch-shared center-crop width diverged across ranks: "
-                                f"{crop_widths.detach().cpu().tolist()}"
-                            )
                 if _PROF and _optimizer_step_wall0 is None:
                     # Preserve the first microstep's data-fetch start so GA>1
                     # summaries cover the complete optimizer step.
@@ -2672,18 +1963,6 @@ class Wan22Trainer:
                         loss, loss_dict = self.model(sample)
                     else:
                         loss, loss_dict = train_model.training_loss(sample)
-                if _FAIL_ON_NONFINITE:
-                    loss_finite = torch.isfinite(loss.detach()).all().to(
-                        device=loss.device, dtype=torch.int32
-                    ).reshape(1)
-                    loss_finite_by_rank = self.accelerator.gather(loss_finite)
-                    if not bool(loss_finite_by_rank.bool().all().item()):
-                        raise FloatingPointError(
-                            "Non-finite training loss before backward at "
-                            f"global_step={self.global_step}, epoch={self.epoch}, "
-                            f"finite_by_rank={loss_finite_by_rank.detach().cpu().tolist()}, "
-                            f"local_loss={float(loss.detach().float().item())}"
-                        )
                 if _PROF:
                     _forward_end_event.record()
                     _forward_end_event.synchronize()
@@ -2754,18 +2033,6 @@ class Wan22Trainer:
                     grad_norm_tensor = torch.as_tensor(
                         grad_norm, device=loss.device, dtype=torch.float32
                     ).detach().reshape(1)
-                    if _FAIL_ON_NONFINITE:
-                        grad_finite_by_rank = self.accelerator.gather(
-                            torch.isfinite(grad_norm_tensor).to(dtype=torch.int32)
-                        )
-                        if not bool(grad_finite_by_rank.bool().all().item()):
-                            self.optimizer.zero_grad(set_to_none=True)
-                            raise FloatingPointError(
-                                "Non-finite gradient norm before optimizer step at "
-                                f"global_step={self.global_step}, epoch={self.epoch}, "
-                                f"finite_by_rank={grad_finite_by_rank.detach().cpu().tolist()}, "
-                                f"local_grad_norm={float(grad_norm_tensor.item())}"
-                            )
                     if self._is_deepspeed:
                         # Accelerate only hands DeepSpeed schedulers that are in
                         # DeepSpeed's native VALID_LR_SCHEDULES set to
@@ -2791,7 +2058,6 @@ class Wan22Trainer:
                     _prof["opt"] += _optimizer_wall
                     _tcollect0 = time.perf_counter()
                     self.global_step += 1
-                    self._verify_weights_after_first_step()
                     global_loss = float(
                         self.accelerator.gather(loss.detach().float().reshape(1)).mean().item()
                     )
@@ -3077,8 +2343,6 @@ class Wan22Trainer:
                             self.max_steps,
                             global_loss,
                         )
-                        if batch_crop_width is not None:
-                            description += f"crop_width={batch_crop_width} "
                         if global_loss_metrics:
                             detail_str = " ".join([f"{k}={v:.4f}" for k, v in sorted(global_loss_metrics.items())])
                             description += detail_str + " "
@@ -3133,10 +2397,6 @@ class Wan22Trainer:
                             "performance/steps_per_sec": steps_per_sec,
                             "performance/samples_per_sec": steps_per_sec * self.batch_size * self.accelerator.num_processes,
                         }
-                        if batch_crop_width is not None:
-                            wandb_payload["train/batch_crop_width"] = int(
-                                batch_crop_width
-                            )
                         for key, value in global_loss_metrics.items():
                             wandb_payload[f"train/{key}"] = value
                         self._wandb_log(wandb_payload)

@@ -233,44 +233,9 @@ def hf_transform_to_torch(items_dict: dict[torch.Tensor | None]):
         if isinstance(first_item, PILImage.Image):
             to_tensor = transforms.ToTensor()
             items_dict[key] = [to_tensor(img) for img in items_dict[key]]
-        elif first_item is None:
-            pass
         else:
             items_dict[key] = [x if isinstance(x, str) else torch.tensor(x) for x in items_dict[key]]
     return items_dict
-
-
-#     if not hub_versions:
-#         raise RevisionNotFoundError(
-#             f"""Your dataset must be tagged with a codebase version.
-#             Assuming _version_ is the codebase_version value in the info.json, you can run this:
-#             ```python
-
-#             hub_api = HfApi()
-#             hub_api.create_tag("{repo_id}", tag="_version_", repo_type="dataset")
-#             ```
-#             """
-#         )
-
-#     if target_version in hub_versions:
-#         return f"v{target_version}"
-
-#     compatibles = [
-#         v for v in hub_versions if v.major == target_version.major and v.minor <= target_version.minor
-#     ]
-#     if compatibles:
-#         return_version = max(compatibles)
-#         if return_version < target_version:
-#             logging.warning(f"Revision {version} for {repo_id} not found, using version v{return_version}")
-#         return f"v{return_version}"
-
-#     lower_major = [v for v in hub_versions if v.major < target_version.major]
-#     if lower_major:
-#         raise BackwardCompatibilityError(repo_id, max(lower_major))
-
-#     upper_versions = [v for v in hub_versions if v > target_version]
-#     assert len(upper_versions) > 0
-#     raise ForwardCompatibilityError(repo_id, min(upper_versions))
 
 
 def get_hf_features_from_features(features: dict) -> datasets.Features:
@@ -294,8 +259,6 @@ def get_hf_features_from_features(features: dict) -> datasets.Features:
             hf_features[key] = datasets.Array4D(shape=ft["shape"], dtype=ft["dtype"])
         elif len(ft["shape"]) == 5:
             hf_features[key] = datasets.Array5D(shape=ft["shape"], dtype=ft["dtype"])
-        else:
-            raise ValueError(f"Corresponding feature is not valid: {ft}")
 
     return datasets.Features(hf_features)
 

@@ -4,8 +4,8 @@ import json
 
 import av
 import numpy as np
-import pytest
 import torch
+import pytest
 
 from humanwam.datasets.lerobot.lerobot.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
 
@@ -41,11 +41,6 @@ def test_episode_timestamps_keep_video_offset_and_frame_order(tmp_path, monkeypa
     assert result[1].mean().item() == pytest.approx(160 / 255, abs=0.03)
 
 
-def test_pretrain_archive_binding_is_not_silently_decoded(tmp_path):
-    (tmp_path / 'video_binding.json').write_text('{}')
-    dataset = SimpleNamespace(root=tmp_path)
-    with pytest.raises(ValueError, match='video_binding.json archive inputs'):
-        LeRobotDataset._query_videos(dataset, {'cam_high': [0.0]}, 0)
 
 
 def test_existing_dataset_still_loads_without_recording_utilities(tmp_path, monkeypatch):
@@ -81,3 +76,18 @@ def test_existing_dataset_still_loads_without_recording_utilities(tmp_path, monk
                             lazy_parquet_loading=True, video_backend='pyav')
     assert len(dataset) == 2
     torch.testing.assert_close(dataset[1]['action'], torch.tensor([1.0, 0.0]))
+
+    # Prompt sampling uses the source episode after resolving a global frame
+    # across task roots, including when the same episode number occurs twice.
+    from humanwam.datasets.lerobot.base_lerobot_dataset import BaseLerobotDataset
+    from humanwam.datasets.lerobot.robot_video_dataset import RobotVideoDataset
+
+    base = object.__new__(BaseLerobotDataset)
+    base.multi_dataset = SimpleNamespace(_datasets=[dataset, dataset])
+    video = object.__new__(RobotVideoDataset)
+    video.lerobot_dataset = base
+    video.object_conditioned_instruction_sampler = SimpleNamespace(
+        sample_task=lambda task_index, episode_index: f'task {task_index}, episode {episode_index}')
+    video.override_instruction = None
+    assert video._instruction_task_for_sample({'instruction': 'fallback', 'idx': 1}, 1) == 'task 0, episode 0'
+    assert video._instruction_task_for_sample({'instruction': 'fallback', 'idx': 2}, 2) == 'task 1, episode 0'

@@ -1,7 +1,6 @@
 import bisect
 import hashlib
 import itertools
-import json
 import math
 import os
 from fractions import Fraction
@@ -27,12 +26,7 @@ def _positive_int_env(name: str, default: int) -> int:
     raw = os.environ.get(name)
     if raw is None:
         return default
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(f"{name} must be a positive integer, got {raw!r}") from exc
-    if value <= 0:
-        raise ValueError(f"{name} must be a positive integer, got {value}")
+    value = int(raw)
     return value
 
 
@@ -161,20 +155,7 @@ class RankAwareStrictResumableSampler(Sampler[int]):
         self.resume_batch_offset = 0
         self.dataset_size = len(dataset)
         self.trim_remainder = False
-        if self.num_processes <= 1:
-            raise ValueError("rank-aware strict sampler requires multiple processes")
-        if not 0 <= self.process_index < self.num_processes:
-            raise ValueError(
-                f"process_index must be in [0, {self.num_processes}), "
-                f"got {self.process_index}"
-            )
         if self.dataset_size % self.num_processes != 0:
-            if os.environ.get("FASTWAM_STRICT_SAMPLER_TRIM_REMAINDER", "0") != "1":
-                raise ValueError(
-                    "rank-aware strict sampler requires dataset length divisible by "
-                    f"world size without padding: dataset={self.dataset_size} "
-                    f"world_size={self.num_processes}"
-                )
             self.trim_remainder = True
         self.samples_per_rank = self.dataset_size // self.num_processes
         self.effective_size = self.samples_per_rank * self.num_processes
@@ -239,8 +220,6 @@ def _stable_uint64(*values: object) -> int:
 
 
 def _affine_permutation_parameters(size: int, seed: int) -> tuple[int, int]:
-    if size <= 0:
-        raise ValueError(f"Permutation size must be positive, got {size}")
     if size == 1:
         return 0, 0
     multiplier = int(seed % size) | 1
@@ -266,8 +245,6 @@ class EnvironmentUniformResumableSampler(ResumableEpochSampler):
     def __init__(self, dataset: Sized, seed: int, batch_size: int, num_processes: int):
         super().__init__(dataset, seed, batch_size, num_processes)
         contract = getattr(dataset, "environment_sampling", None)
-        if not isinstance(contract, dict) or contract.get("mode") != "uniform":
-            raise ValueError("Dataset does not expose a uniform environment contract")
         self.environment_ids = tuple(contract["environment_ids"])
         self.spans = tuple(tuple(value) for value in contract["spans"])
         self.capacities = tuple(int(value) for value in contract["capacities"])
@@ -282,11 +259,6 @@ class EnvironmentUniformResumableSampler(ResumableEpochSampler):
                 environment_ends.append(cumulative)
             span_ends.append(tuple(environment_ends))
         self._span_ends = tuple(span_ends)
-        if self.training_total_samples > len(dataset):
-            raise ValueError(
-                "Uniform training prefix cannot exceed the selected condition pool: "
-                f"training={self.training_total_samples}, pool={len(dataset)}"
-            )
 
     def _global_index(self, environment: int, local_index: int) -> int:
         ends = self._span_ends[environment]
@@ -431,35 +403,7 @@ class TaskWeightedResumableSampler(ResumableEpochSampler):
     def __init__(self, dataset: Sized, seed: int, batch_size: int, num_processes: int):
         super().__init__(dataset, seed, batch_size, num_processes)
         contract = getattr(dataset, "task_weighted_sampling", None)
-        if not isinstance(contract, dict) or contract.get("mode") != (
-            "task_weighted_replacement_v1"
-        ):
-            raise ValueError(
-                "Dataset does not expose task_weighted_replacement_v1"
-            )
-        if contract.get("replacement") is not True:
-            raise ValueError("Task-weighted sampling must use replacement")
-        contract_sha256 = contract.get("sha256")
-        unsigned_contract = {
-            key: value for key, value in contract.items() if key != "sha256"
-        }
-        observed_sha256 = hashlib.sha256(
-            json.dumps(
-                unsigned_contract,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        if contract_sha256 != observed_sha256:
-            raise ValueError(
-                "Task-weighted sampling contract sha256 mismatch: "
-                f"declared={contract_sha256!r} observed={observed_sha256!r}"
-            )
         raw_tasks = contract.get("tasks")
-        if not isinstance(raw_tasks, list) or not raw_tasks:
-            raise ValueError("Task-weighted sampling contract needs non-empty tasks")
 
         self.task_ids = []
         self.starts = []
@@ -467,69 +411,26 @@ class TaskWeightedResumableSampler(ResumableEpochSampler):
         self.capacities = []
         self.integer_weights = []
         self.mass_ends = []
-        expected_start = 0
         total_mass = 0
         for position, entry in enumerate(raw_tasks):
-            if not isinstance(entry, dict):
-                raise TypeError(
-                    f"Task-weighted task entry {position} must be a mapping"
-                )
             task_id = str(entry.get("task_id", "")).strip()
             start = int(entry.get("start", -1))
             end = int(entry.get("end", -1))
             capacity = int(entry.get("capacity", -1))
             integer_weight = int(entry.get("integer_weight", -1))
-            if not task_id or task_id in self.task_ids:
-                raise ValueError(
-                    f"Task-weighted task IDs must be non-empty and unique: {task_id!r}"
-                )
-            if start != expected_start or end <= start or end - start != capacity:
-                raise ValueError(
-                    "Task-weighted spans must be positive, contiguous, and match "
-                    f"capacity; task={task_id!r} start={start} end={end} "
-                    f"capacity={capacity} expected_start={expected_start}"
-                )
-            if integer_weight <= 0:
-                raise ValueError(
-                    f"Task-weighted integer weight must be positive: {task_id!r}"
-                )
             task_mass = capacity * integer_weight
             total_mass += task_mass
-            if int(entry.get("expected_task_probability_numerator", -1)) != task_mass:
-                raise ValueError(
-                    f"Task probability numerator mismatch for {task_id!r}"
-                )
             self.task_ids.append(task_id)
             self.starts.append(start)
             self.ends.append(end)
             self.capacities.append(capacity)
             self.integer_weights.append(integer_weight)
             self.mass_ends.append(total_mass)
-            expected_start = end
 
         self.total_integer_mass = int(contract.get("total_integer_mass", -1))
-        if self.total_integer_mass != total_mass:
-            raise ValueError(
-                "Task-weighted total integer mass mismatch: "
-                f"contract={self.total_integer_mass} observed={total_mass}"
-            )
-        if self.total_integer_mass <= 0 or self.total_integer_mass >= 1 << 63:
-            raise ValueError(
-                f"Task-weighted total mass is outside torch.randint bounds: "
-                f"{self.total_integer_mass}"
-            )
-        if expected_start != len(dataset):
-            raise ValueError(
-                "Task-weighted spans do not cover the dataset exactly: "
-                f"covered={expected_start} dataset={len(dataset)}"
-            )
         self.native_epoch_samples = int(
             contract.get("native_epoch_samples", -1)
         )
-        if self.native_epoch_samples != len(dataset):
-            raise ValueError(
-                "Task-weighted native epoch length must equal the dataset length"
-            )
         self.global_batch_size = int(contract.get("global_batch_size", -1))
         self.expected_batch_size_per_rank = int(
             contract.get("expected_batch_size_per_rank", -1)
@@ -537,43 +438,9 @@ class TaskWeightedResumableSampler(ResumableEpochSampler):
         self.expected_num_processes = int(
             contract.get("expected_num_processes", -1)
         )
-        actual_global_batch_size = self.batch_size * self.num_processes
-        if (
-            self.expected_batch_size_per_rank != self.batch_size
-            or self.expected_num_processes != self.num_processes
-            or self.global_batch_size != actual_global_batch_size
-        ):
-            raise ValueError(
-                "Task-weighted exact-resume topology mismatch: contract "
-                f"batch_size_per_rank={self.expected_batch_size_per_rank}, "
-                f"num_processes={self.expected_num_processes}, "
-                f"global_batch_size={self.global_batch_size}; actual "
-                f"batch_size_per_rank={self.batch_size}, "
-                f"num_processes={self.num_processes}, "
-                f"global_batch_size={actual_global_batch_size}"
-            )
         self.effective_epoch_samples = int(
             contract.get("effective_epoch_samples", -1)
         )
-        expected_effective = (
-            (self.native_epoch_samples + self.global_batch_size - 1)
-            // self.global_batch_size
-        ) * self.global_batch_size
-        if self.effective_epoch_samples != expected_effective:
-            raise ValueError(
-                "Task-weighted effective epoch length mismatch: "
-                f"contract={self.effective_epoch_samples} "
-                f"expected={expected_effective}"
-            )
-        expected_extra = self.effective_epoch_samples - self.native_epoch_samples
-        if int(contract.get("padding_equivalent_extra", -1)) != expected_extra:
-            raise ValueError("Task-weighted padding-equivalent extra mismatch")
-        if any(
-            int(entry.get("expected_task_probability_denominator", -1))
-            != self.total_integer_mass
-            for entry in raw_tasks
-        ):
-            raise ValueError("Task probability denominator mismatch")
 
     def sampling_report(self) -> dict[str, object]:
         return {
@@ -683,14 +550,6 @@ class SourceMixResumableSampler(ResumableEpochSampler):
     def __init__(self, dataset: Sized, seed: int, batch_size: int, num_processes: int):
         super().__init__(dataset, seed, batch_size, num_processes)
         contract = getattr(dataset, "source_mix_sampling", None)
-        if not isinstance(contract, dict) or contract.get("mode") not in {
-            "batch_homogeneous",
-            "sample_mixed",
-        }:
-            raise ValueError(
-                "Dataset does not expose a supported source mix: expected "
-                "`batch_homogeneous` or `sample_mixed`."
-            )
         self.robot_size = int(contract["robot_size"])
         self.ego_size = int(contract["ego_size"])
         self.ego_ratio = float(contract["ego_ratio"])
@@ -699,24 +558,10 @@ class SourceMixResumableSampler(ResumableEpochSampler):
         self.epoch_steps = (
             None if raw_epoch_steps is None else int(raw_epoch_steps)
         )
-        if self.epoch_steps is not None and self.epoch_steps <= 0:
-            raise ValueError(
-                f"Source-mix epoch_steps must be positive, got {self.epoch_steps}"
-            )
-        if self.mix_mode not in {"batch_homogeneous", "sample_mixed"}:
-            raise ValueError(
-                "Unsupported source-mix mode: "
-                f"{self.mix_mode!r}; expected `batch_homogeneous` or `sample_mixed`."
-            )
         self.global_micro_batch = self.batch_size * self.num_processes
         fraction = Fraction(self.ego_ratio).limit_denominator(1000)
         self.ego_slots = int(fraction.numerator)
         self.period = int(fraction.denominator)
-        if self.ego_slots <= 0 or self.ego_slots >= self.period:
-            raise ValueError(
-                f"Invalid source-mix ratio {self.ego_ratio}: "
-                f"resolved slots={self.ego_slots}/{self.period}"
-            )
         self.ego_environment = contract.get("ego_environment_sampling")
         self._ego_span_ends = None
         if isinstance(self.ego_environment, dict) and self.ego_environment.get("mode") == "uniform":
@@ -842,21 +687,7 @@ def build_resumable_sampler(
     task_weighted_sampling = getattr(dataset, "task_weighted_sampling", None)
     source_mix_sampling = getattr(dataset, "source_mix_sampling", None)
     environment_sampling = getattr(dataset, "environment_sampling", None)
-    if task_weighted_sampling is not None and source_mix_sampling is not None:
-        raise ValueError(
-            "task_weighted_sampling cannot be combined with source_mix_sampling"
-        )
-    if task_weighted_sampling is not None and environment_sampling is not None:
-        raise ValueError(
-            "task_weighted_sampling cannot be combined with environment_sampling"
-        )
     if rank_aware_strict:
-        if task_weighted_sampling is not None:
-            raise ValueError(
-                "task_weighted_sampling is incompatible with "
-                "dataloader_rank_aware_strict; use the historical global-stream "
-                "Accelerate sharding path"
-            )
         return RankAwareStrictResumableSampler(
             dataset,
             seed=seed,

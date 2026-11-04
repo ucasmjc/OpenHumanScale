@@ -57,9 +57,6 @@ class FastWAMProcessor(BaseProcessor):
         # right = second half). "both"/absent -> all-valid (== default behavior).
         self.hand_action_mask = hand_action_mask
         self.hand_action_dim = action_output_dim if hand_action_dim is None else int(hand_action_dim)
-        if (hand_action_dim is not None or hand_action_mask) and (
-                self.hand_action_dim <= 0 or self.hand_action_dim > action_output_dim or self.hand_action_dim % 2):
-            raise ValueError("hand_action_dim must be an even EEF prefix within action_output_dim")
         # Opt-in bridge metadata for EEFAnchorOverlay. This is captured after all
         # frame/wrist/rotation transforms but before normalization, then consumed by
         # RobotVideoDataset. It is only one 20D CPU tensor per sample.
@@ -90,34 +87,19 @@ class FastWAMProcessor(BaseProcessor):
             self.delta_action_dim_mask = None
         else:
             action_meta = self.shape_meta["action"]
-            expected_keys = [m["key"] for m in action_meta]
-            provided_keys = list(delta_action_dim_mask.keys())
-            if set(provided_keys) != set(expected_keys):
-                raise ValueError(
-                    f"`delta_action_dim_mask` keys mismatch. Expected {expected_keys}, got {provided_keys}."
-                )
 
             self.delta_action_dim_mask = {}
             for meta in action_meta:
                 key = meta["key"]
-                expected_dim = meta["shape"]
                 mask = delta_action_dim_mask[key]
-                if len(mask) != expected_dim:
-                    raise ValueError(
-                        f"`delta_action_dim_mask[{key}]` length must be {expected_dim}, got {len(mask)}."
-                    )
                 self.delta_action_dim_mask[key] = torch.as_tensor(mask, dtype=torch.bool)
 
     @property
     def is_train(self):
-        if self._is_train is None:
-            raise ValueError("is_train has not been set. Please call train() and eval() first.")
         return self._is_train
 
     @property
     def normalizer(self) -> LinearNormalizer:
-        if self._normalizer is None:
-            raise ValueError("normalizer has not been set. Please call set_normalizer_from_stats() first.")
         return self._normalizer
 
     def train(self):
@@ -145,33 +127,15 @@ class FastWAMProcessor(BaseProcessor):
     def action_state_transform(self, batch):
         if "action" in batch:
             for meta in self.shape_meta["action"]:
-                k, meta_shape = meta["key"], meta["raw_shape"]
-                actual_shape = batch["action"][k].shape[-1]
-                assert actual_shape == meta_shape, \
-                    f"Action key {k} actual raw shape {actual_shape} mismatch with meta raw shape {meta_shape}."
+                _, _ = meta["key"], meta["raw_shape"]
 
         for meta in self.shape_meta["state"]:
-            k, meta_shape = meta["key"], meta["raw_shape"]
-            actual_shape = batch["state"][k].shape[-1]
-            assert actual_shape == meta_shape, \
-                f"State key {k} actual raw shape {actual_shape} mismatch with meta raw shape {meta_shape}."
+            _, _ = meta["key"], meta["raw_shape"]
 
         if self.action_state_transforms is not None:
             for trans in self.action_state_transforms:
                 batch = trans.forward(batch)
 
-        if "action" in batch:
-            for meta in self.shape_meta["action"]:
-                k, meta_shape = meta["key"], meta["shape"]
-                actual_shape = batch["action"][k].shape[-1]
-                assert actual_shape == meta_shape, \
-                    f"Action key {k} actual transformed shape {actual_shape} mismatch with meta shape {meta_shape}."
-
-        for meta in self.shape_meta["state"]:
-            k, meta_shape = meta["key"], meta["shape"]
-            actual_shape = batch["state"][k].shape[-1]
-            assert actual_shape == meta_shape, \
-                f"State key {k} actual transformed shape {actual_shape} mismatch with meta raw shape {meta_shape}."
 
         return batch
 
@@ -207,13 +171,7 @@ class FastWAMProcessor(BaseProcessor):
         sample["instruction"] = self.augment_instruction(data)
         sample["image_is_pad"] = data["image_is_pad"]
         video_indices = data.get('_fastwam_video_sample_indices')
-        image_steps = self.num_obs_steps
         if video_indices is not None:
-            if (not video_indices or video_indices[0] != 0 or
-                    tuple(video_indices) != tuple(sorted(set(video_indices))) or
-                    video_indices[-1] >= self.num_obs_steps):
-                raise ValueError('Invalid sparse video frame selection')
-            image_steps = len(video_indices)
             sample['image_is_pad'] = sample['image_is_pad'][list(video_indices)]
             sample['_fastwam_video_sample_indices'] = video_indices
 
@@ -236,9 +194,8 @@ class FastWAMProcessor(BaseProcessor):
             )
             processed_images = []
             for meta in self.shape_meta["images"]:
-                key, shape = meta["key"], meta["shape"]
+                key = meta["key"]
                 image = data["images"][key]  # [num_obs_steps, C, H, W]
-                assert image.ndim == 4, f"Expected 4 dimensions (num_obs_steps, C, H, W), got shape {image.shape}"
 
                 # Apply transforms efficiently on the merged batch
                 transforms = self.train_transforms if self.is_train else self.val_transforms
@@ -248,10 +205,6 @@ class FastWAMProcessor(BaseProcessor):
                         image = trans.apply_with_context(image, task=data["task"])
                     else:
                         image = trans(image)
-
-                meta_shape = [image_steps] + shape
-                assert tuple(image.shape) == tuple(meta_shape), \
-                    f"Expected shape {meta_shape}, got {image.shape} after transforms for key {key}"
 
                 processed_images.append(image)
             pixel_values = torch.stack(processed_images, dim=0) # [num_input_cameras, T, C, H, W]
@@ -286,17 +239,7 @@ class FastWAMProcessor(BaseProcessor):
         transformed_anchor_state = None
         transformed_anchor_hand = None
         if self.emit_transformed_anchor_state:
-            if self.anchor_state_key not in data["state"]:
-                raise KeyError(
-                    f"anchor_state_key={self.anchor_state_key!r} is absent from "
-                    f"transformed state keys {list(data['state'])}"
-                )
             transformed_state = data["state"][self.anchor_state_key]
-            if transformed_state.ndim != 2 or transformed_state.shape[0] < 1:
-                raise ValueError(
-                    "EEF anchor state must be [T,D] with T>=1, got "
-                    f"{tuple(transformed_state.shape)}"
-                )
             transformed_anchor_state = transformed_state[0].detach().clone()
             transformed_anchor_hand = data.get("operating_hand")
         data = self.normalizer.forward(data)
@@ -306,7 +249,6 @@ class FastWAMProcessor(BaseProcessor):
             sample["action"] = data["action"] # [action_horizon, action_dim]
             sample["action_is_pad"] = data["action_is_pad"] # [action_horizon,]
             sample["action_dim_is_pad"] = data["action_dim_is_pad"] # [action_dim,]
-            assert sample["action"].shape[-1] == self.action_output_dim
             # Target-dimension padding is a representation bridge, not supervision.
             # Emit the inverse mask so padded channels neither contribute to the
             # diffusion loss nor to component diagnostics.  This also composes with
@@ -337,7 +279,6 @@ class FastWAMProcessor(BaseProcessor):
         sample["proprio"] = data["state"] # [num_obs_steps, proprio_dim]
         sample["proprio_is_pad"] = data["state_is_pad"] # [num_obs_steps,]
         sample["proprio_dim_is_pad"] = data["state_dim_is_pad"] # [proprio_dim,]
-        assert sample["proprio"].shape[-1] == self.proprio_output_dim
 
         sample["idx"] = data["idx"]
 
@@ -359,11 +300,6 @@ class FastWAMProcessor(BaseProcessor):
         # camera/video mismatch because the processor does not own that sampling.
         if data.get("cam_extrinsic") is not None:
             camera_extrinsic = torch.as_tensor(data["cam_extrinsic"])
-            if tuple(camera_extrinsic.shape) != (self.num_obs_steps, 7):
-                raise ValueError(
-                    "cam_extrinsic must be [num_obs_steps,7] xyz+quat_wxyz, got "
-                    f"{tuple(camera_extrinsic.shape)}."
-                )
             sample["cam_extrinsic"] = camera_extrinsic.detach().clone().float()
 
         return sample
@@ -378,7 +314,6 @@ class FastWAMProcessor(BaseProcessor):
         Returns:
             data: Dict[str, Any], processed data including unnormalized action
         """
-        assert "action" in data, "Action is required in postprocess"
         data["state"] = data.pop("proprio")
         data = self.action_state_merger.backward(data)
         data = self.normalizer.backward(data)

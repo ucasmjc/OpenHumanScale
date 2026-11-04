@@ -1,6 +1,5 @@
 # Modified by Open-HumanScale contributors: package namespace renamed to humanwam.
 from dataclasses import dataclass
-import inspect
 from typing import Any
 
 import torch
@@ -8,8 +7,7 @@ import time
 
 from .io import ModelConfig, hash_model_file, load_state_dict
 from .state_dict_converters import (
-    wan_video_vae_state_dict_converter,
-)
+    wan_video_vae_state_dict_converter)
 from ..wan_video_dit import WanVideoDiT
 from ..wan_video_text_encoder import HuggingfaceTokenizer, WanTextEncoder
 from ..wan_video_vae import WanVideoVAE38
@@ -54,39 +52,6 @@ WAN22_MODEL_REGISTRY = [
 ]
 
 
-def _validate_dit_config(dit_config: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(dit_config, dict):
-        raise ValueError(f"`dit_config` must be a dict, got {type(dit_config)}")
-
-    validated = dict(dit_config)
-
-    signature = inspect.signature(WanVideoDiT.__init__)
-    allowed_keys = set()
-    required_keys = set()
-    for name, param in signature.parameters.items():
-        if name == "self":
-            continue
-        allowed_keys.add(name)
-        if param.default is inspect.Signature.empty:
-            required_keys.add(name)
-
-    unknown_keys = sorted(set(validated) - allowed_keys)
-    if unknown_keys:
-        raise ValueError(
-            f"Unknown keys in `dit_config`: {unknown_keys}. "
-            f"Allowed keys: {sorted(allowed_keys)}"
-        )
-
-    missing_keys = sorted(required_keys - set(validated))
-    if missing_keys:
-        raise ValueError(
-            f"Missing required keys in `dit_config`: {missing_keys}. "
-            "Please specify all required WanVideoDiT constructor args."
-        )
-
-    return validated
-
-
 def _load_registered_model(
     path,
     model_name: str,
@@ -101,11 +66,6 @@ def _load_registered_model(
         if config["model_hash"] == model_hash and config["model_name"] == model_name:
             matched_config = config
             break
-    if matched_config is None:
-        raise ValueError(
-            f"Cannot detect model type for {model_name}. File: {path}. "
-            f"Model hash: {model_hash}. This standalone package follows DiffSynth hash-based loading."
-        )
 
     model_class = matched_config["model_class"]
     model_kwargs = dict(matched_config.get("extra_kwargs", {}))
@@ -152,10 +112,7 @@ def load_wan22_ti2v_5b_components(
 ):
     logger.info("Loading Wan2.2-TI2V-5B components...")
     start = time.time()
-
-    if dit_config is None:
-        raise ValueError("`dit_config` is required for Wan2.2-TI2V-5B loading.")
-    validated_dit_config = _validate_dit_config(dit_config)
+    model_config = dict(dit_config)
 
     dit_model_config, text_config, vae_config, tokenizer_config = _resolve_configs(
         model_id=model_id,
@@ -173,7 +130,7 @@ def load_wan22_ti2v_5b_components(
             "Skipping pretrained video DiT load (`skip_dit_load_from_pretrain=True`); "
             "initializing video expert randomly and expecting checkpoint override."
         )
-        dit: WanVideoDiT = WanVideoDiT(**validated_dit_config).to(device=device, dtype=torch_dtype)
+        dit: WanVideoDiT = WanVideoDiT(**model_config).to(device=device, dtype=torch_dtype)
         dit_path = SKIPPED_PRETRAIN_SENTINEL
     else:
         dit_model_config.download_if_necessary()
@@ -182,7 +139,7 @@ def load_wan22_ti2v_5b_components(
             "wan_video_dit",
             torch_dtype=torch_dtype,
             device=device,
-            model_kwargs_override=validated_dit_config,
+            model_kwargs_override=model_config,
         )
         dit_path = str(dit_model_config.path)
     text_encoder: WanTextEncoder | None = None

@@ -89,8 +89,6 @@ def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
     Returns:
         quaternions with real part first, as tensor of shape (..., 4).
     """
-    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
-        raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
 
     batch_dim = matrix.shape[:-2]
     m00, m01, m02, m10, m11, m12, m20, m21, m22 = torch.unbind(
@@ -156,11 +154,6 @@ def standardize_quaternion(quaternions: torch.Tensor) -> torch.Tensor:
     Returns:
         Standardized quaternions as tensor of shape (..., 4).
     """
-    if quaternions.shape[-1] != 4:
-        raise ValueError(
-            "Quaternion must have four wxyz components, got "
-            f"{tuple(quaternions.shape)}"
-        )
     w, x, y, z = torch.unbind(quaternions, dim=-1)
     negate = (w < 0) | (
         (w == 0)

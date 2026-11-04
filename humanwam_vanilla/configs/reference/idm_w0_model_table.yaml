@@ -11,14 +11,6 @@ dataloader_require_merged_cache: true
 dataloader_fail_on_cache_miss: true
 dataloader_require_video_latent_cache: false
 dataloader_fail_on_latent_cache_miss: false
-batch_shared_center_crop:
-  enabled: false
-  min_long_edge: 320
-  max_long_edge: 448
-  long_edge_step: 32
-  spatial_multiple: 32
-  seed: 42
-  verify_across_ranks: true
 lr_scheduler_type: cosine
 learning_rate: 0.0001
 warmup_ratio: 0.025001
@@ -61,8 +53,6 @@ lora:
   checkpoint_mode: adapter
   resume_adapter: null
   base_checkpoint: null
-  base_checkpoint_sha256: null
-  verify_base_sha256: true
 bottleneck_adapter:
   enabled: false
   experts:
@@ -82,8 +72,6 @@ bottleneck_adapter:
   checkpoint_mode: delta
   resume_delta: null
   base_checkpoint: null
-  base_checkpoint_sha256: null
-  verify_base_sha256: true
 resume: ${paths.resume}
 resume_mot_skip_prefixes: []
 resume_skip_proprio_encoder: false
@@ -293,13 +281,11 @@ data:
     merged_video_cache_dir: ${paths.data__train__merged_video_cache_dir}
     _recursive_: false
     norm_stats_weighting: loss
-    validate_norm_stats_provenance: true
     merged_video_cache_dtype: tshape_mp4
     video_latent_cache_dir: null
     video_backend: pyav
     lazy_parquet_loading: true
     action_time_offset_frames: 0
-    strict_data_loading: true
     object_conditioned_instruction_manifest: ${paths.data__train__object_conditioned_instruction_manifest}
     object_conditioned_instruction_sampling: per_draw
     object_conditioned_instruction_seed: '20260903'

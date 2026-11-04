@@ -28,13 +28,8 @@ class ConcatLeftAlign:
         return batch
 
     def backward(self, batch):
-        if self.state_target_dim is not None:
-            assert batch["state"].shape[-1] == self.state_target_dim
         batch["state"] = self._crop(batch["state"], self.state_meta)
         batch["state"] = self._split(batch["state"], self.state_meta)
-
-        if self.action_target_dim is not None:
-            assert batch["action"].shape[-1] == self.action_target_dim
         batch["action"] = self._crop(batch["action"], self.action_meta)
         batch["action"] = self._split(batch["action"], self.action_meta)
 
@@ -44,8 +39,6 @@ class ConcatLeftAlign:
     def _pad(x: torch.Tensor, dim: int):
         if dim is None:
             dim = x.shape[-1]
-
-        assert x.ndim == 2 and x.shape[-1] <= dim
         pad_dim = dim - x.shape[-1]
         x_padded = pad(x, (0, pad_dim))
         mask = torch.zeros_like(x[0]).bool()
@@ -54,7 +47,6 @@ class ConcatLeftAlign:
 
     @staticmethod
     def _crop(x: torch.Tensor, meta: int):
-        assert x.ndim == 3
         dim = sum([m["shape"] for m in meta])
         x = x[:, :, :dim]
         return x
@@ -62,12 +54,10 @@ class ConcatLeftAlign:
     @staticmethod
     def _concat(x: Dict[str, torch.Tensor], meta: Dict[str, Dict]):
         x = torch.cat([x[m["key"]] for m in meta], dim=-1)
-        assert x.ndim == 2
         return x
 
     @staticmethod
     def _split(x: torch.Tensor, meta: Dict[str, Dict]):
-        assert x.ndim == 3
         y = {}
         idx = 0
         for m in meta:
