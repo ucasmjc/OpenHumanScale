@@ -5,6 +5,9 @@ Completed public updates are recorded here. Future work is tracked in
 
 ## 2026-11-04
 
+- Replace the generated header image with a compact, hand-authored SVG wordmark
+  and human–robot emblem; remove the oversized H1 wrapper.
+
 - Add an original blue/violet Open-HumanScale wordmark to the README header.
 
 - Update the title and teaser from manuscript revision `3069a9e`.

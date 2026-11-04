@@ -1,5 +1,29 @@
 # Open-HumanScale wordmark
 
+## Current: vector wordmark (v2)
+
+`wordmark-v2.svg` is a hand-authored vector design with no embedded raster image,
+external font, script, or network dependency. The human and robot share an
+ascending action path; three small bars represent scaling. The 623 × 108 canvas
+is displayed at 560 px wide (about 97 px high) in the README.
+
+The text uses outlined Noto Sans Display SemiBold/Bold (Google, SIL OFL 1.1).
+See [Noto fonts](https://github.com/notofonts/noto-fonts) for the font sources.
+The outlined wordmark is a document made using the font, not a font distribution.
+
+The SVG can be edited directly. To rebuild the lettering and emblem from source:
+
+```bash
+python assets/branding/build_wordmark.py --font-dir /path/to/noto/fonts
+```
+
+This requires `fontTools`, `NotoSansDisplay-SemiBold.ttf`, and
+`NotoSansDisplay-Bold.ttf` at build time only.
+
+## Archived: generated concept (v1)
+
+The PNG below is retained as design history; it is no longer used by the README.
+
 `wordmark-v1.png` is the original transparent PNG generated with the built-in
 image generation tool on November 4, 2026. Preserve its alpha channel when reusing it.
 The lettering uses the project's blue and violet palette, with a curved/structured

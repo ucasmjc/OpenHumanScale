@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1><img src="assets/branding/wordmark-v1.png" width="760" alt="Open-HumanScale"></h1>
+<p><img src="assets/branding/wordmark-v2.svg" width="560" alt="Open-HumanScale"></p>
 
 ### An Open Recipe for Scaling Human and Robot Experience<br>for Embodied Foundation Models
 
