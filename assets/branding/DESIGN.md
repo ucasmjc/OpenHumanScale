@@ -1,24 +1,32 @@
 # Open-HumanScale wordmark
 
-## Current: vector wordmark (v2)
+## Current: typographic wordmark (v3)
 
-`wordmark-v2.svg` is a hand-authored vector design with no embedded raster image,
-external font, script, or network dependency. The human and robot share an
-ascending action path; three small bars represent scaling. The 623 × 108 canvas
-is displayed at 560 px wide (about 97 px high) in the README.
+`wordmark-v3.svg` is a type-led vector composition. A quieter slate Open prefix
+balances the bold blue-to-violet HumanScale lettering. The subtitle, “Scaling
+Human & Robot Experience”, sits between fine rules and two small colored dots.
+There is no separate pictogram. The compact 695 × 130 canvas is displayed at
+580 px wide (about 108 px high) in the README.
 
-The text uses outlined Noto Sans Display SemiBold/Bold (Google, SIL OFL 1.1).
-See [Noto fonts](https://github.com/notofonts/noto-fonts) for the font sources.
-The outlined wordmark is a document made using the font, not a font distribution.
+All lettering is outlined; there are no embedded raster images, runtime fonts,
+scripts, or network dependencies. The lettering uses Noto Sans Display
+SemiBold/ExtraBold/Medium (Google, SIL OFL 1.1). See
+[Noto fonts](https://github.com/notofonts/noto-fonts) for font sources. The outlined
+wordmark is a document made using the font, not a font distribution.
 
-The SVG can be edited directly. To rebuild the lettering and emblem from source:
+The SVG can be edited directly. Rebuild it with:
 
 ```bash
 python assets/branding/build_wordmark.py --font-dir /path/to/noto/fonts
 ```
 
-This requires `fontTools`, `NotoSansDisplay-SemiBold.ttf`, and
-`NotoSansDisplay-Bold.ttf` at build time only.
+The builder requires `fontTools` and the three Noto Sans Display font files
+listed above at build time only.
+
+## Archived: human–robot emblem (v2)
+
+`wordmark-v2.svg` is the earlier 623 × 108 vector concept featuring a human–robot
+H emblem. It is retained as design history and is no longer used by the README.
 
 ## Archived: generated concept (v1)
 

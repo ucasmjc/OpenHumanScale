@@ -1,10 +1,8 @@
 <div align="center">
 
-<p><img src="assets/branding/wordmark-v2.svg" width="560" alt="Open-HumanScale"></p>
+<p><img src="assets/branding/wordmark-v3.svg" width="580" alt="Open-HumanScale"></p>
 
 ### An Open Recipe for Scaling Human and Robot Experience<br>for Embodied Foundation Models
-
-**Human Data Scaling · Zero-Shot Robot Learning**
 
 [![arXiv](https://img.shields.io/badge/arXiv-Coming_soon-B31B1B?style=flat&logo=arxiv&logoColor=white)](#-paper-and-citation)
 [![Project Page](https://img.shields.io/badge/%F0%9F%8C%90_Project_Page-Coming_soon-4285F4?style=flat)](https://dagroup-pku.github.io/open-humanscale/)

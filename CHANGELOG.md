@@ -5,6 +5,9 @@ Completed public updates are recorded here. Future work is tracked in
 
 ## 2026-11-04
 
+- Refine the header to a type-led SVG with a restrained gradient and integrated
+  research subtitle; remove the pictogram and duplicate standalone tagline.
+
 - Replace the generated header image with a compact, hand-authored SVG wordmark
   and human–robot emblem; remove the oversized H1 wrapper.
 
