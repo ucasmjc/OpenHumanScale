@@ -94,7 +94,7 @@ wandb:
   name: idm_w0_a2_50kh
 data:
   train:
-    _target_: fastwam.datasets.lerobot.robot_video_dataset.RobotVideoDataset
+    _target_: humanwam.datasets.lerobot.robot_video_dataset.RobotVideoDataset
     dataset_dirs:
     - ${paths.data__train__dataset_dirs__0}
     - ${paths.data__train__dataset_dirs__1}
@@ -197,7 +197,7 @@ data:
     concat_multi_camera: robotwin_latent_tshape
     goal_supervision: false
     processor:
-      _target_: fastwam.datasets.lerobot.processors.fastwam_processor.FastWAMProcessor
+      _target_: humanwam.datasets.lerobot.processors.fastwam_processor.FastWAMProcessor
       shape_meta:
         images:
         - key: cam_high
@@ -240,7 +240,7 @@ data:
       action_output_dim: 16
       proprio_output_dim: 16
       action_state_transforms:
-      - _target_: fastwam.datasets.lerobot.transforms.pose_frame.DualArmWorldToCameraTransform
+      - _target_: humanwam.datasets.lerobot.transforms.pose_frame.DualArmWorldToCameraTransform
         num_arms: 2
         category_keys:
           action:
@@ -268,16 +268,16 @@ data:
       norm_default_mode: z-score
       norm_exception_mode: null
       action_state_merger:
-        _target_: fastwam.datasets.lerobot.transforms.action_state_merger.ConcatLeftAlign
+        _target_: humanwam.datasets.lerobot.transforms.action_state_merger.ConcatLeftAlign
       train_transforms:
-      - _target_: fastwam.datasets.lerobot.transforms.image.ToTensor
+      - _target_: humanwam.datasets.lerobot.transforms.image.ToTensor
       - _target_: torchvision.transforms.Resize
         size:
         - 256
         - 352
         antialias: true
       val_transforms:
-      - _target_: fastwam.datasets.lerobot.transforms.image.ToTensor
+      - _target_: humanwam.datasets.lerobot.transforms.image.ToTensor
       - _target_: torchvision.transforms.Resize
         size:
         - 256
@@ -349,7 +349,7 @@ data:
       - 1.02
     sync_cameras: true
 model:
-  _target_: fastwam.runtime.create_fastwam
+  _target_: humanwam.runtime.create_fastwam
   model_id: Wan-AI/Wan2.2-TI2V-5B
   tokenizer_model_id: Wan-AI/Wan2.1-T2V-1.3B
   tokenizer_max_len: 128
@@ -474,7 +474,7 @@ model:
       rotation: 1.0
       gripper: 1.0
   action_component_num_arms: 2
-  model_class: fastwam.models.wan22.fastwam_idm.FastWAMIDM
+  model_class: humanwam.models.wan22.fastwam_idm.FastWAMIDM
 stats_expected_anchors: 551118
 stats_task_config: robotwin_eef_clean50_egopro_mid20k_w0_post12k
 log_first_steps: 50

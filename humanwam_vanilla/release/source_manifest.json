@@ -4,441 +4,598 @@
   "runtime_verified": false,
   "files": [
     {
-      "path": "src/fastwam/__init__.py",
+      "path": "src/humanwam/__init__.py",
       "original_sha256": "c4149c5ff0f9abd1517360daf761e692feb8570eb7a0caa2dfde52d4412c3e23",
       "exported_sha256": "c4149c5ff0f9abd1517360daf761e692feb8570eb7a0caa2dfde52d4412c3e23",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/__init__.py"
     },
     {
-      "path": "src/fastwam/action_layout.py",
+      "path": "src/humanwam/action_layout.py",
       "original_sha256": "e1b83cbff7c07ef80084c24ed280daf1ef38e8de3428ba1e90d15528dabbc70c",
       "exported_sha256": "e1b83cbff7c07ef80084c24ed280daf1ef38e8de3428ba1e90d15528dabbc70c",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/action_layout.py"
     },
     {
-      "path": "src/fastwam/camera_pose.py",
+      "path": "src/humanwam/camera_pose.py",
       "original_sha256": "8922db9be780176a5532f48f9eb878013b4e9c12225e0ab0c74e1bbd6f25ed23",
       "exported_sha256": "8922db9be780176a5532f48f9eb878013b4e9c12225e0ab0c74e1bbd6f25ed23",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/camera_pose.py"
     },
     {
-      "path": "src/fastwam/checkpoint_storage.py",
+      "path": "src/humanwam/utils/checkpoints.py",
       "original_sha256": "39b405d2c9af4c33083855c4426acefa6257973a237691bd49b0dd1406124a96",
-      "exported_sha256": "39b405d2c9af4c33083855c4426acefa6257973a237691bd49b0dd1406124a96",
-      "changed": false
+      "exported_sha256": "721a8503b38f67ecbb47551209652b67c8cc190edfef102f70ea0c838566c367",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/checkpoint_storage.py",
+      "pre_runtime_cleanup_path": "src/humanwam/checkpoint_storage.py",
+      "pre_runtime_cleanup_sha256": "39b405d2c9af4c33083855c4426acefa6257973a237691bd49b0dd1406124a96",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/datasets/__init__.py",
+      "path": "src/humanwam/datasets/__init__.py",
       "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "exported_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/__init__.py"
     },
     {
-      "path": "src/fastwam/datasets/dataset_utils.py",
+      "path": "src/humanwam/datasets/dataset_utils.py",
       "original_sha256": "14face7ae43d886bd982af14aa8a4b24e4cdf297464606a933762ca20bbf92cc",
       "exported_sha256": "14face7ae43d886bd982af14aa8a4b24e4cdf297464606a933762ca20bbf92cc",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/dataset_utils.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/action_supervision.py",
+      "path": "src/humanwam/datasets/lerobot/action_supervision.py",
       "original_sha256": "31be9a46915c13546f2d71bf6b96a553d5167d15d26321ed9ab98012e44f22ac",
       "exported_sha256": "31be9a46915c13546f2d71bf6b96a553d5167d15d26321ed9ab98012e44f22ac",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/action_supervision.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/base_lerobot_dataset.py",
+      "path": "src/humanwam/datasets/lerobot/base_lerobot_dataset.py",
       "original_sha256": "7460cff38c49943a55ffddcc162e35056abf086a5693e782c02f551aedd2e1d7",
-      "exported_sha256": "7460cff38c49943a55ffddcc162e35056abf086a5693e782c02f551aedd2e1d7",
-      "changed": false
+      "exported_sha256": "601eb5ea4d67cb70b76bb3648e0b1773002a49db0b2238f3b18c20d0893c9987",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/base_lerobot_dataset.py",
+      "pre_namespace_rename_sha256": "7460cff38c49943a55ffddcc162e35056abf086a5693e782c02f551aedd2e1d7",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed internal development references from comments and diagnostics; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_privacy_cleanup_sha256": "874ee45ba57abcb43386e0404df1dbb488390929191cdf81cc5bda4c2e38ea15",
+      "pre_runtime_cleanup_sha256": "6cc9d57ea1049fa95e2c96d3f2dd364256c86a41984a1e69514bed1499df3b3b"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/camera_intrinsics_warp.py",
+      "path": "src/humanwam/datasets/lerobot/camera_intrinsics_warp.py",
       "original_sha256": "46355ff8da2302a277fc3d67d3648197cb26027ef9bd06a00e48e2801b343fc8",
-      "exported_sha256": "46355ff8da2302a277fc3d67d3648197cb26027ef9bd06a00e48e2801b343fc8",
-      "changed": false
+      "exported_sha256": "03a791c621440e83cc212f227cd945a457d6cd0c9cd0c5cb004948311fdb4493",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/camera_intrinsics_warp.py",
+      "pre_runtime_cleanup_sha256": "46355ff8da2302a277fc3d67d3648197cb26027ef9bd06a00e48e2801b343fc8",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/constants.py",
+      "path": "src/humanwam/datasets/lerobot/constants.py",
       "original_sha256": "11ac9260341e1560c5eb0dd7acb79ed63c74180b8ab4113c27622ff213db417f",
       "exported_sha256": "94ee0368f6b906757044ac68761d2433f14dcf17898b260d5883e8af709c9baa",
       "changed": true,
-      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header"
+      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header",
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/constants.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/content_addressed_cache.py",
+      "path": "src/humanwam/datasets/lerobot/content_addressed_cache.py",
       "original_sha256": "27c94154e960cf6eb0d56a2447d1345f9988be75748c8f04bf173fcfb1edcefd",
-      "exported_sha256": "27c94154e960cf6eb0d56a2447d1345f9988be75748c8f04bf173fcfb1edcefd",
-      "changed": false
+      "exported_sha256": "c993e4323757f72d5041340a9c60bbc5cd4dde63254be607889377529a7bd2fa",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/content_addressed_cache.py",
+      "pre_namespace_rename_sha256": "27c94154e960cf6eb0d56a2447d1345f9988be75748c8f04bf173fcfb1edcefd",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/eef_anchor_overlay.py",
+      "path": "src/humanwam/datasets/lerobot/eef_anchor_overlay.py",
       "original_sha256": "955da972adcaa07db096eb8d86bfb7ccbad94d754509373fa57b043c650606fd",
       "exported_sha256": "955da972adcaa07db096eb8d86bfb7ccbad94d754509373fa57b043c650606fd",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/eef_anchor_overlay.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/episode_exclusion.py",
+      "path": "src/humanwam/datasets/lerobot/episode_exclusion.py",
       "original_sha256": "31bacf3306d23c24aa0aa37e800266a600e4d38cb18f16095c902421028ad3a3",
       "exported_sha256": "31bacf3306d23c24aa0aa37e800266a600e4d38cb18f16095c902421028ad3a3",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/episode_exclusion.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/episode_instruction.py",
+      "path": "src/humanwam/datasets/lerobot/episode_instruction.py",
       "original_sha256": "d90335eaa2b3b441ff0aaa913bfbe625ad611d6521f20ccac881641b6e59e434",
       "exported_sha256": "d90335eaa2b3b441ff0aaa913bfbe625ad611d6521f20ccac881641b6e59e434",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/episode_instruction.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/episode_segments.py",
+      "path": "src/humanwam/datasets/lerobot/episode_segments.py",
       "original_sha256": "83feda6617f4f79fc744f333b34eb4388046318e02cd5fdb8f9fce5c8423aeec",
-      "exported_sha256": "83feda6617f4f79fc744f333b34eb4388046318e02cd5fdb8f9fce5c8423aeec",
-      "changed": false
+      "exported_sha256": "f340a66729d2e3a0ed1842695a849d591ffe692b73ca0a72db61569a1c75f86c",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/episode_segments.py",
+      "pre_privacy_cleanup_sha256": "83feda6617f4f79fc744f333b34eb4388046318e02cd5fdb8f9fce5c8423aeec",
+      "modification_notice": "Removed internal development references from comments and diagnostics"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/lerobot/datasets/compute_stats.py",
+      "path": "src/humanwam/datasets/lerobot/lerobot/datasets/compute_stats.py",
       "original_sha256": "7d7daab219332b5abdfd5ec67ccaf3502e8eb583a17a4e482c3f3d4f7a691e89",
-      "exported_sha256": "b1635c4bfc62f9d653771d22037fc43d6626560c1f4020f4c37fa5983dd3e1b3",
+      "exported_sha256": "1d1b7db9e79edce3e98f1be6376745a4c5033e6d3cdfee5de01469f49fab55ff",
       "changed": true,
-      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header"
+      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/lerobot/datasets/compute_stats.py",
+      "pre_runtime_cleanup_sha256": "b1635c4bfc62f9d653771d22037fc43d6626560c1f4020f4c37fa5983dd3e1b3"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/lerobot/datasets/utils.py",
+      "path": "src/humanwam/datasets/lerobot/lerobot/datasets/utils.py",
       "original_sha256": "d6fc03849954a4d1bb6c4a252c70b4c1b573a3f2b653da60d5d969865fc71a52",
-      "exported_sha256": "29c3660dbe4662ec9983510e846b02f3c2ad004c7489987ed5d104097d939539",
+      "exported_sha256": "432c045060cd09f52d4f16ceada125e6b16d39732b35bcf455c77f38fd03bba8",
       "changed": true,
-      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header"
+      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/lerobot/datasets/utils.py",
+      "pre_runtime_cleanup_sha256": "29c3660dbe4662ec9983510e846b02f3c2ad004c7489987ed5d104097d939539"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/lerobot/datasets/video_utils.py",
+      "path": "src/humanwam/datasets/lerobot/lerobot/datasets/video_utils.py",
       "original_sha256": "5280bb6c7cb3eb21b5eb864887bf7f5be47866131882c068fcb33fde02e9bce0",
-      "exported_sha256": "92562cc1fae15544b255886591ac122abf80d8e809656a4a130a7125a1644a21",
+      "exported_sha256": "949cd1fa50a75969746b5a7ce51cd5fcd646a713a5205ccf9587336fd3deca69",
       "changed": true,
-      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header"
+      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/lerobot/datasets/video_utils.py",
+      "pre_runtime_cleanup_sha256": "92562cc1fae15544b255886591ac122abf80d8e809656a4a130a7125a1644a21"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/lerobot/lerobot_dataset.py",
+      "path": "src/humanwam/datasets/lerobot/lerobot/lerobot_dataset.py",
       "original_sha256": "93b0372bdd243d4548e7e397a88a04b24be21a1068c56af08ee36f98f4b84a8e",
-      "exported_sha256": "eb7ef334fc99273d4b6e44aa4a6729ce183f4c32214aec82cade695874197dcb",
+      "exported_sha256": "a4a1101ea030977d5fcb6e12b49d5cce75b208c26c7d81c8d4da30b4f3a2d1a7",
       "changed": true,
-      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header"
+      "modification_notice": "Added explicit FastWAM/OpenHumanScale adaptation notice; retained upstream Apache header; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/lerobot/lerobot_dataset.py",
+      "pre_runtime_cleanup_sha256": "eb7ef334fc99273d4b6e44aa4a6729ce183f4c32214aec82cade695874197dcb"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/local_frame_stage.py",
+      "path": "src/humanwam/datasets/lerobot/local_frame_stage.py",
       "original_sha256": "75ecef70d976e774fbecf716f5cc3c74106e44fd38b3dac83c999a7e419d141b",
       "exported_sha256": "75ecef70d976e774fbecf716f5cc3c74106e44fd38b3dac83c999a7e419d141b",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/local_frame_stage.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/merged_video_cache.py",
+      "path": "src/humanwam/datasets/lerobot/merged_video_cache.py",
       "original_sha256": "f475027b1f86b4b7ac3d3fd807800f0736b8788e5f1f13901cefa191c7f7f176",
       "exported_sha256": "f475027b1f86b4b7ac3d3fd807800f0736b8788e5f1f13901cefa191c7f7f176",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/merged_video_cache.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/object_conditioned_instruction.py",
+      "path": "src/humanwam/datasets/lerobot/object_conditioned_instruction.py",
       "original_sha256": "f8810077643fc161697320249c5b3767d10e2991a91252060b2ceb281c55fec5",
       "exported_sha256": "f8810077643fc161697320249c5b3767d10e2991a91252060b2ceb281c55fec5",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/object_conditioned_instruction.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/packed_parquet_cache.py",
+      "path": "src/humanwam/datasets/lerobot/packed_parquet_cache.py",
       "original_sha256": "629e313f1f344fdec2ec900c3462d54fc5e595ded17f765520e603aa27d5251a",
       "exported_sha256": "629e313f1f344fdec2ec900c3462d54fc5e595ded17f765520e603aa27d5251a",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/packed_parquet_cache.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/processors/base_processor.py",
+      "path": "src/humanwam/datasets/lerobot/processors/base_processor.py",
       "original_sha256": "cdada5461807efca413623966f96d24115c1ab5d7aaaee507c6d2d435d824c9c",
-      "exported_sha256": "cdada5461807efca413623966f96d24115c1ab5d7aaaee507c6d2d435d824c9c",
-      "changed": false
+      "exported_sha256": "5c071677d5ba731ea89cded82a9af94fd68814c2e302ab5db77c38d251a9f822",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/processors/base_processor.py",
+      "pre_namespace_rename_sha256": "cdada5461807efca413623966f96d24115c1ab5d7aaaee507c6d2d435d824c9c",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "1fb6a240187d8952ee563a2a9ef2ec3802db0df69b5b9464bfaa499a77b6bc96"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/processors/fastwam_processor.py",
+      "path": "src/humanwam/datasets/lerobot/processors/fastwam_processor.py",
       "original_sha256": "482866badbc349a2aa1d60d54839f9352670615262a0a1200f60189f75b1d02c",
-      "exported_sha256": "482866badbc349a2aa1d60d54839f9352670615262a0a1200f60189f75b1d02c",
-      "changed": false
+      "exported_sha256": "62cd15abfc6d2f4d051db4becaf249b7f68b1358f10f1aae0a53596325b13532",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/processors/fastwam_processor.py",
+      "pre_namespace_rename_sha256": "482866badbc349a2aa1d60d54839f9352670615262a0a1200f60189f75b1d02c",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed internal development references from comments and diagnostics; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_privacy_cleanup_sha256": "59d50d3e2bf19df80fcc713f197bb2b5098e3b3825b9d5fe234560d75dc79316",
+      "pre_runtime_cleanup_sha256": "def90dd0b71e376ee7f09f029ad400b4dd139e528720129d865787f05ddc7c8d"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/processors/task_instruction.py",
+      "path": "src/humanwam/datasets/lerobot/processors/task_instruction.py",
       "original_sha256": "b7e975c593c46700557643ceede1ece2dddea35eaad19865d93a42db5de612ee",
-      "exported_sha256": "b7e975c593c46700557643ceede1ece2dddea35eaad19865d93a42db5de612ee",
-      "changed": false
+      "exported_sha256": "2d66f0f9bbf7787f2261e6b0fdbc928f11ac374af0e0ce108ef2928226476086",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/processors/task_instruction.py",
+      "pre_runtime_cleanup_sha256": "b7e975c593c46700557643ceede1ece2dddea35eaad19865d93a42db5de612ee",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/robot_video_dataset.py",
+      "path": "src/humanwam/datasets/lerobot/robot_video_dataset.py",
       "original_sha256": "ed754b657143026508ac053c9f47758999bb71ca17585fc771f7c77371baffc0",
-      "exported_sha256": "ed754b657143026508ac053c9f47758999bb71ca17585fc771f7c77371baffc0",
-      "changed": false
+      "exported_sha256": "da676dbd9cef747b8335d65aafafa3cf6a687c821c06484db8e1be88631be383",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/robot_video_dataset.py",
+      "pre_namespace_rename_sha256": "ed754b657143026508ac053c9f47758999bb71ca17585fc771f7c77371baffc0",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed internal development references from comments and diagnostics; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_privacy_cleanup_sha256": "b91a7c3af90c5cdedd670da40d3ff5c4cef84d16d223532c0b5ba498d2873e69",
+      "pre_runtime_cleanup_sha256": "46aa94a7de6ce726806ab9588316e9fdc15f332bdbc18ac801990d4760bea850"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/sparse_video_decode.py",
+      "path": "src/humanwam/datasets/lerobot/sparse_video_decode.py",
       "original_sha256": "299f25efb8683e475e4fc722a2fc625dc48b408af50c7f2b05095493e8ed05ea",
       "exported_sha256": "299f25efb8683e475e4fc722a2fc625dc48b408af50c7f2b05095493e8ed05ea",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/sparse_video_decode.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/temporal_resampling.py",
+      "path": "src/humanwam/datasets/lerobot/temporal_resampling.py",
       "original_sha256": "2d60282c4ec9a6fcdce1f0e1618032ef660e7d2d6bea821d95f336fae8b517a0",
-      "exported_sha256": "2d60282c4ec9a6fcdce1f0e1618032ef660e7d2d6bea821d95f336fae8b517a0",
-      "changed": false
+      "exported_sha256": "cb2523ce2507e730ca8dbe0340f62dcadfb2ea2ae3072a4b77f3b9cfcbc32c20",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/temporal_resampling.py",
+      "pre_privacy_cleanup_sha256": "2d60282c4ec9a6fcdce1f0e1618032ef660e7d2d6bea821d95f336fae8b517a0",
+      "modification_notice": "Removed internal development references from comments and diagnostics; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "d671cb852b31c44f0e9296bf02a6470194ca35706774c944bb8960401f303ae9"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/text_embedding_pack.py",
+      "path": "src/humanwam/datasets/lerobot/text_embedding_pack.py",
       "original_sha256": "f3d9ef97eb23c0a1569404a6ad2366b127067413e1dfd5ca042372fd319b0c0c",
-      "exported_sha256": "f3d9ef97eb23c0a1569404a6ad2366b127067413e1dfd5ca042372fd319b0c0c",
-      "changed": false
+      "exported_sha256": "02cd29cc806e63874776398e52c31aef5cf9cb85c03b306c792a56725eedf0c8",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/text_embedding_pack.py",
+      "pre_namespace_rename_sha256": "f3d9ef97eb23c0a1569404a6ad2366b127067413e1dfd5ca042372fd319b0c0c",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/transforms/action_state_merger.py",
+      "path": "src/humanwam/datasets/lerobot/transforms/action_state_merger.py",
       "original_sha256": "75219302d17d47df5e2e398cdf07c144bcec8aad460c86e02df7b43258b59af4",
       "exported_sha256": "75219302d17d47df5e2e398cdf07c144bcec8aad460c86e02df7b43258b59af4",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/transforms/action_state_merger.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/transforms/image.py",
+      "path": "src/humanwam/datasets/lerobot/transforms/image.py",
       "original_sha256": "45a1ee764cd6684daa883eb80a3a9a9a2770bb437c3c04dbffc81039d9470152",
       "exported_sha256": "45a1ee764cd6684daa883eb80a3a9a9a2770bb437c3c04dbffc81039d9470152",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/transforms/image.py"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/transforms/pose_frame.py",
+      "path": "src/humanwam/datasets/lerobot/transforms/pose_frame.py",
       "original_sha256": "35d6e2edbeff06ce5c903a185e3aace01ae9cb0669af9ef53770e18cadf9788d",
-      "exported_sha256": "35d6e2edbeff06ce5c903a185e3aace01ae9cb0669af9ef53770e18cadf9788d",
-      "changed": false
+      "exported_sha256": "f2b61f8a43e3265e0db52666f93471105d296660d72c93346ff7daa3b2a2ad23",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/transforms/pose_frame.py",
+      "pre_privacy_cleanup_sha256": "35d6e2edbeff06ce5c903a185e3aace01ae9cb0669af9ef53770e18cadf9788d",
+      "modification_notice": "Removed internal development references from comments and diagnostics"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/utils/normalizer.py",
+      "path": "src/humanwam/datasets/lerobot/utils/normalizer.py",
       "original_sha256": "f2c46a609c3fb06116ec3f803342c0cb7f53c978ffac96ac3982c04d22bae5a7",
-      "exported_sha256": "f2c46a609c3fb06116ec3f803342c0cb7f53c978ffac96ac3982c04d22bae5a7",
-      "changed": false
+      "exported_sha256": "a248a8bd614d594f3a7dd88da6e18b8bb5f8de2bdfcee8675b6c1595e7ffd89a",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/utils/normalizer.py",
+      "pre_namespace_rename_sha256": "f2c46a609c3fb06116ec3f803342c0cb7f53c978ffac96ac3982c04d22bae5a7",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "5f5722f8c0433acbcb73688054e984de7f58425952007e11849549d7201769cb"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/utils/rotation.py",
+      "path": "src/humanwam/datasets/lerobot/utils/rotation.py",
       "original_sha256": "43e6ba18384c5052da409d9ae0e5e27aff68c2a74a3e979700a4019feffd4df9",
-      "exported_sha256": "43e6ba18384c5052da409d9ae0e5e27aff68c2a74a3e979700a4019feffd4df9",
-      "changed": false
+      "exported_sha256": "7d6ee98e46476bad78956301d042df39919a3f65b9932e868d2e64d974a04839",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/utils/rotation.py",
+      "pre_runtime_cleanup_sha256": "43e6ba18384c5052da409d9ae0e5e27aff68c2a74a3e979700a4019feffd4df9",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/datasets/lerobot/video_latent_cache.py",
+      "path": "src/humanwam/datasets/lerobot/video_latent_cache.py",
       "original_sha256": "328eb612e487125a27c29a6adf1035219f50f65bf67cc9145e9cb248a8758cdb",
-      "exported_sha256": "328eb612e487125a27c29a6adf1035219f50f65bf67cc9145e9cb248a8758cdb",
-      "changed": false
+      "exported_sha256": "1d2d39a214c5bd592773030956a40498853190bd7601db4110883ab7d1651245",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/lerobot/video_latent_cache.py",
+      "pre_runtime_cleanup_sha256": "328eb612e487125a27c29a6adf1035219f50f65bf67cc9145e9cb248a8758cdb",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/datasets/locality_sampler.py",
+      "path": "src/humanwam/datasets/locality_sampler.py",
       "original_sha256": "1019a3836ae1e0200a46855931276d2a5a17919263ed91fed90cbe9f762a27fb",
       "exported_sha256": "1019a3836ae1e0200a46855931276d2a5a17919263ed91fed90cbe9f762a27fb",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/locality_sampler.py"
     },
     {
-      "path": "src/fastwam/datasets/task_weighted_sampling.py",
+      "path": "src/humanwam/datasets/task_weighted_sampling.py",
       "original_sha256": "cc0069112632118dcf080eda5dcbfeeacd27d7434ef9c7fd602388b277f7451b",
       "exported_sha256": "cc0069112632118dcf080eda5dcbfeeacd27d7434ef9c7fd602388b277f7451b",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/datasets/task_weighted_sampling.py"
     },
     {
-      "path": "src/fastwam/datasets/video_augmentation.py",
+      "path": "src/humanwam/datasets/video_augmentation.py",
       "original_sha256": "8b64ea0681c688b63c848eabae0149c05adab3ba5c3fda903684199d94782972",
-      "exported_sha256": "8b64ea0681c688b63c848eabae0149c05adab3ba5c3fda903684199d94782972",
-      "changed": false
+      "exported_sha256": "593d48edc73bd54fda3f88b588339ffbb0d4a89fbb8ccdebf32e0075e9a86fab",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/datasets/video_augmentation.py",
+      "pre_privacy_cleanup_sha256": "8b64ea0681c688b63c848eabae0149c05adab3ba5c3fda903684199d94782972",
+      "modification_notice": "Removed internal development references from comments and diagnostics"
     },
     {
-      "path": "src/fastwam/models/__init__.py",
+      "path": "src/humanwam/models/__init__.py",
       "original_sha256": "ae4c5733f4bbf7caf31df2ae6f789516f6a10cd84a321f7d0375a7034253ac6d",
-      "exported_sha256": "ae4c5733f4bbf7caf31df2ae6f789516f6a10cd84a321f7d0375a7034253ac6d",
-      "changed": false
+      "exported_sha256": "1994b2a11b5f630be2aefcd66e33c0ed7b918b09c123dd4f7e8da1f23a70aa44",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/__init__.py",
+      "pre_namespace_rename_sha256": "ae4c5733f4bbf7caf31df2ae6f789516f6a10cd84a321f7d0375a7034253ac6d",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices"
     },
     {
-      "path": "src/fastwam/models/bottleneck_adapter.py",
+      "path": "src/humanwam/models/bottleneck_adapter.py",
       "original_sha256": "20daae4d33cec1c82ee57d3465d91fa591d442a4969b5dd19abc2609db4c8670",
       "exported_sha256": "20daae4d33cec1c82ee57d3465d91fa591d442a4969b5dd19abc2609db4c8670",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/bottleneck_adapter.py"
     },
     {
-      "path": "src/fastwam/models/lora.py",
+      "path": "src/humanwam/models/lora.py",
       "original_sha256": "6600b3c5f32f332c4f380c34513f5ca4bb502f31c68f622f8d1a61f7f6377371",
       "exported_sha256": "6600b3c5f32f332c4f380c34513f5ca4bb502f31c68f622f8d1a61f7f6377371",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/lora.py"
     },
     {
-      "path": "src/fastwam/models/wan22/__init__.py",
+      "path": "src/humanwam/models/wan22/__init__.py",
       "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "exported_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/__init__.py"
     },
     {
-      "path": "src/fastwam/models/wan22/action_dit.py",
+      "path": "src/humanwam/models/wan22/action_dit.py",
       "original_sha256": "d6b1a77178e13f7c71f832397542b5dde97232ae22503aa07e8bcd7b0437b55d",
-      "exported_sha256": "d6b1a77178e13f7c71f832397542b5dde97232ae22503aa07e8bcd7b0437b55d",
-      "changed": false
+      "exported_sha256": "676c88c8ace68434df72830ab82741644c2a97f1f45ecfba826561dc49b063e0",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/action_dit.py",
+      "pre_namespace_rename_sha256": "d6b1a77178e13f7c71f832397542b5dde97232ae22503aa07e8bcd7b0437b55d",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "80ecf52e35bcc9da8074b4b7913ed058b60d0d06b119e18e586a84e3b96f495f"
     },
     {
-      "path": "src/fastwam/models/wan22/cuda_graph.py",
+      "path": "src/humanwam/models/wan22/cuda_graph.py",
       "original_sha256": "7518f37972558c7ed02ee7e7f09dcdd33055fb6eebf409e39708de276e842899",
-      "exported_sha256": "7518f37972558c7ed02ee7e7f09dcdd33055fb6eebf409e39708de276e842899",
-      "changed": false
+      "exported_sha256": "3331dc67e1cce2c142a28cc8334263d2727dfe837a778cb52f45c8ecdb28bf97",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/cuda_graph.py",
+      "pre_privacy_cleanup_sha256": "7518f37972558c7ed02ee7e7f09dcdd33055fb6eebf409e39708de276e842899",
+      "modification_notice": "Removed internal development references from comments and diagnostics"
     },
     {
-      "path": "src/fastwam/models/wan22/fastwam.py",
+      "path": "src/humanwam/models/wan22/fastwam.py",
       "original_sha256": "2be3cbe5123fbbf8443081e5e809851e2daf18fbd445521470e4e8bf8ce19547",
-      "exported_sha256": "2be3cbe5123fbbf8443081e5e809851e2daf18fbd445521470e4e8bf8ce19547",
-      "changed": false
+      "exported_sha256": "db34247e6b0c15a9d7dbcd1cc3b2ea65b8b98e534cb58c0a773fda4c36346811",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/fastwam.py",
+      "pre_namespace_rename_sha256": "2be3cbe5123fbbf8443081e5e809851e2daf18fbd445521470e4e8bf8ce19547",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed internal development references from comments and diagnostics",
+      "pre_privacy_cleanup_sha256": "de8e47ee5409380501772b68b7c3c49c0ad6e97d41779a1d2c126d6dbebddf3a"
     },
     {
-      "path": "src/fastwam/models/wan22/fastwam_idm.py",
+      "path": "src/humanwam/models/wan22/fastwam_idm.py",
       "original_sha256": "2fd702e7548c2e7ba40be7bb493c472489a67b4a8c98c4954f848dcb045e0089",
-      "exported_sha256": "2fd702e7548c2e7ba40be7bb493c472489a67b4a8c98c4954f848dcb045e0089",
-      "changed": false
+      "exported_sha256": "500b0eed59720459da8b927023fe28bfd28de81b85730a391c9bf57491b22b4e",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/fastwam_idm.py",
+      "pre_namespace_rename_sha256": "2fd702e7548c2e7ba40be7bb493c472489a67b4a8c98c4954f848dcb045e0089",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed internal development references from comments and diagnostics",
+      "pre_privacy_cleanup_sha256": "34def40dbafbe10ef1d8bdc0b8e5224146acd339128477b1456011cb516ad740"
     },
     {
-      "path": "src/fastwam/models/wan22/fastwam_joint.py",
+      "path": "src/humanwam/models/wan22/fastwam_joint.py",
       "original_sha256": "35bf9bceba78b5c49b6655e5e103fce3566595fce31974a5da54a35ddc3a2ffb",
-      "exported_sha256": "35bf9bceba78b5c49b6655e5e103fce3566595fce31974a5da54a35ddc3a2ffb",
-      "changed": false
+      "exported_sha256": "17bc59a34066ca951c32ed9f73d68c18308c8a8dc63b83de6812c5cfd6433604",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/fastwam_joint.py",
+      "pre_namespace_rename_sha256": "35bf9bceba78b5c49b6655e5e103fce3566595fce31974a5da54a35ddc3a2ffb",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices"
     },
     {
-      "path": "src/fastwam/models/wan22/helpers/__init__.py",
+      "path": "src/humanwam/models/wan22/helpers/__init__.py",
       "original_sha256": "f26116de229557a37a4812dc4ee75971f5f9e8b80240786ea4d0e5b0ff703cbf",
       "exported_sha256": "f26116de229557a37a4812dc4ee75971f5f9e8b80240786ea4d0e5b0ff703cbf",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/helpers/__init__.py"
     },
     {
-      "path": "src/fastwam/models/wan22/helpers/gradient.py",
+      "path": "src/humanwam/models/wan22/helpers/gradient.py",
       "original_sha256": "ba5d8f7272eb029dc6cd2849ca99b70f6ad5abb838d21c818beb0590620dc793",
       "exported_sha256": "ba5d8f7272eb029dc6cd2849ca99b70f6ad5abb838d21c818beb0590620dc793",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/helpers/gradient.py"
     },
     {
-      "path": "src/fastwam/models/wan22/helpers/io.py",
+      "path": "src/humanwam/models/wan22/helpers/io.py",
       "original_sha256": "1c6c1bc8a975b47092912833194fce25e2e3ac886fbab72d73af3ff5a00b3c62",
       "exported_sha256": "1c6c1bc8a975b47092912833194fce25e2e3ac886fbab72d73af3ff5a00b3c62",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/helpers/io.py"
     },
     {
-      "path": "src/fastwam/models/wan22/helpers/loader.py",
+      "path": "src/humanwam/models/wan22/helpers/loader.py",
       "original_sha256": "792f66bd0609c1365256aa24d43301340f81260c1651d89b04d2ae8224a08726",
-      "exported_sha256": "792f66bd0609c1365256aa24d43301340f81260c1651d89b04d2ae8224a08726",
-      "changed": false
+      "exported_sha256": "23947fbf18602b7c81e22c22eaf7ffa8a6c2ee6a3187c0b65a4f4300d748208f",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/helpers/loader.py",
+      "pre_namespace_rename_sha256": "792f66bd0609c1365256aa24d43301340f81260c1651d89b04d2ae8224a08726",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices"
     },
     {
-      "path": "src/fastwam/models/wan22/helpers/state_dict_converters.py",
+      "path": "src/humanwam/models/wan22/helpers/state_dict_converters.py",
       "original_sha256": "81d213373e5056a8d8bf31768b9b04164138ea78d0b306e316334841499f4bf9",
       "exported_sha256": "81d213373e5056a8d8bf31768b9b04164138ea78d0b306e316334841499f4bf9",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/helpers/state_dict_converters.py"
     },
     {
-      "path": "src/fastwam/models/wan22/mot.py",
+      "path": "src/humanwam/models/wan22/mot.py",
       "original_sha256": "f338d32000e49789d72cbbff4deca089222594865d3b6d5cd2b441c33671074f",
-      "exported_sha256": "f338d32000e49789d72cbbff4deca089222594865d3b6d5cd2b441c33671074f",
-      "changed": false
+      "exported_sha256": "91cea1fe02df4af8b6d63b2d2d9325ac833ad9562381e47c57d6a79a7f07597a",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/mot.py",
+      "pre_namespace_rename_sha256": "f338d32000e49789d72cbbff4deca089222594865d3b6d5cd2b441c33671074f",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices"
     },
     {
-      "path": "src/fastwam/models/wan22/schedulers/scheduler_continuous.py",
+      "path": "src/humanwam/models/wan22/schedulers/scheduler_continuous.py",
       "original_sha256": "2ececce284f7b9fe876965fbf5e11ca7b69caaf693979266b0f63062a589f181",
       "exported_sha256": "2ececce284f7b9fe876965fbf5e11ca7b69caaf693979266b0f63062a589f181",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/schedulers/scheduler_continuous.py"
     },
     {
-      "path": "src/fastwam/models/wan22/wan_video_dit.py",
+      "path": "src/humanwam/models/wan22/wan_video_dit.py",
       "original_sha256": "1cc92f1c97cc31e2374ed3037da823d644a653e17ec4bd8bf8c5720338b18461",
-      "exported_sha256": "1cc92f1c97cc31e2374ed3037da823d644a653e17ec4bd8bf8c5720338b18461",
-      "changed": false
+      "exported_sha256": "6acc49578b609de1893c8e4ea9e10883fbdaf9600acc222a33d9d5edc7a7ed0b",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/wan_video_dit.py",
+      "pre_namespace_rename_sha256": "1cc92f1c97cc31e2374ed3037da823d644a653e17ec4bd8bf8c5720338b18461",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "50aa2f9bf948aed96a0bc202de14dffa7bd29c1874355b6d164faf5c84c817b2"
     },
     {
-      "path": "src/fastwam/models/wan22/wan_video_text_encoder.py",
+      "path": "src/humanwam/models/wan22/wan_video_text_encoder.py",
       "original_sha256": "6e6abd6ea983027250236fd54cf565f3807e75f95bdfd6e8802dadb30de5e70f",
-      "exported_sha256": "6e6abd6ea983027250236fd54cf565f3807e75f95bdfd6e8802dadb30de5e70f",
-      "changed": false
+      "exported_sha256": "a39fb224a17afc2a3884c718f7320aa0389b1c697e6c137caf585bc64a64e241",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/wan_video_text_encoder.py",
+      "pre_runtime_cleanup_sha256": "6e6abd6ea983027250236fd54cf565f3807e75f95bdfd6e8802dadb30de5e70f",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/models/wan22/wan_video_vae.py",
+      "path": "src/humanwam/models/wan22/wan_video_vae.py",
       "original_sha256": "688b6a8cc6adeb5be1a9b3c58cdb66d15e9220fb997d42e1bcdadb3d36aa1df4",
-      "exported_sha256": "688b6a8cc6adeb5be1a9b3c58cdb66d15e9220fb997d42e1bcdadb3d36aa1df4",
-      "changed": false
+      "exported_sha256": "8fd2c6c5c5362536a5e47f4a93a977cbe84cee0cfb409d8e9c7b3ae9a516244e",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/models/wan22/wan_video_vae.py",
+      "pre_runtime_cleanup_sha256": "688b6a8cc6adeb5be1a9b3c58cdb66d15e9220fb997d42e1bcdadb3d36aa1df4",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/runtime.py",
+      "path": "src/humanwam/runtime.py",
       "original_sha256": "23ec68084c50cb25722ba20a980daf2aae20cb74d20c60bf6af1959cabf21fa3",
-      "exported_sha256": "61b55026e7a3bfb7d2efcc11aa8c06cd3b2bc1a93b2a881f8a70f679f52f6433",
-      "changed": true
+      "exported_sha256": "45d48920eaeebdee0f27420b154676adc8d0846a4d70faefb89e8155178a22e8",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/runtime.py",
+      "pre_privacy_cleanup_sha256": "61b55026e7a3bfb7d2efcc11aa8c06cd3b2bc1a93b2a881f8a70f679f52f6433",
+      "modification_notice": "Removed internal development references from comments and diagnostics; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "ecd09b622ac073da4ca980d0de30401787ca24ef1e172baeb86494398bc2162f"
     },
     {
-      "path": "src/fastwam/trainer.py",
+      "path": "src/humanwam/trainer.py",
       "original_sha256": "87f0c8bcaf926fb7ce8b314e72684ed42db96e533d33e8db50541505da0b07ca",
-      "exported_sha256": "87f0c8bcaf926fb7ce8b314e72684ed42db96e533d33e8db50541505da0b07ca",
-      "changed": false
+      "exported_sha256": "8d2646983887690c19c13393ffcfb0da9d4effb7193bc27487467762bca1721e",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/trainer.py",
+      "pre_namespace_rename_sha256": "87f0c8bcaf926fb7ce8b314e72684ed42db96e533d33e8db50541505da0b07ca",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "a97a8b6bf160dee0744102cbecb615160902d9ba9dbdedb3b1f2d91f42dde824"
     },
     {
-      "path": "src/fastwam/training_augmentations.py",
+      "path": "src/humanwam/training_augmentations.py",
       "original_sha256": "1b856dd66b9942e7c584f5a7bf296de54b55f7eeff1b6157a8b9970da418365e",
       "exported_sha256": "1b856dd66b9942e7c584f5a7bf296de54b55f7eeff1b6157a8b9970da418365e",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/training_augmentations.py"
     },
     {
-      "path": "src/fastwam/utils/__init__.py",
+      "path": "src/humanwam/utils/__init__.py",
       "original_sha256": "2893c05b99b17162941c70a41859c2808f8ae390be367a26cac7d5ab93ee197b",
       "exported_sha256": "2893c05b99b17162941c70a41859c2808f8ae390be367a26cac7d5ab93ee197b",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/__init__.py"
     },
     {
-      "path": "src/fastwam/utils/deepspeed_resume.py",
+      "path": "src/humanwam/utils/deepspeed_resume.py",
       "original_sha256": "3759fc605469e7ba0b14df395eab0ec8e692406a13a541b5ff0cdf006504a9f6",
       "exported_sha256": "3759fc605469e7ba0b14df395eab0ec8e692406a13a541b5ff0cdf006504a9f6",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/deepspeed_resume.py"
     },
     {
-      "path": "src/fastwam/utils/fs.py",
+      "path": "src/humanwam/utils/fs.py",
       "original_sha256": "69e6df236b43360428a613686c8f37c531c0d16a3a2c5b06a725c46b49d657c5",
       "exported_sha256": "69e6df236b43360428a613686c8f37c531c0d16a3a2c5b06a725c46b49d657c5",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/fs.py"
     },
     {
-      "path": "src/fastwam/utils/logging_config.py",
+      "path": "src/humanwam/utils/logging_config.py",
       "original_sha256": "cd04f17bf4188e1a83856a5d28b438eb37312c1783341d1a31870a07f33d53c3",
-      "exported_sha256": "cd04f17bf4188e1a83856a5d28b438eb37312c1783341d1a31870a07f33d53c3",
-      "changed": false
+      "exported_sha256": "91ec991c25df7e37e8f4c7f4460178adf94805aff52d4d32579d0c0a0022acbf",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/utils/logging_config.py",
+      "pre_namespace_rename_sha256": "cd04f17bf4188e1a83856a5d28b438eb37312c1783341d1a31870a07f33d53c3",
+      "modification_notice": "Renamed Python package namespace to humanwam; retained upstream notices; Removed unused runtime code and publishing tools; retained training/evaluation paths",
+      "pre_runtime_cleanup_sha256": "db98b70a696a0f83f2225884c1576fb5526234dcfb184ddafdbb194562c552ca"
     },
     {
-      "path": "src/fastwam/utils/lr_schedule.py",
+      "path": "src/humanwam/utils/lr_schedule.py",
       "original_sha256": "4c1b383bd0aebafdd9d292bbdf220e777c10110aa3ee80d2ad7224c81476a626",
       "exported_sha256": "4c1b383bd0aebafdd9d292bbdf220e777c10110aa3ee80d2ad7224c81476a626",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/lr_schedule.py"
     },
     {
-      "path": "src/fastwam/utils/misc.py",
+      "path": "src/humanwam/utils/misc.py",
       "original_sha256": "05aa51247936a8d3faac27f90b78b65ff83a688259bed55d114b6a617ced532d",
-      "exported_sha256": "05aa51247936a8d3faac27f90b78b65ff83a688259bed55d114b6a617ced532d",
-      "changed": false
+      "exported_sha256": "42f74e7be225b3efdef62cc372fbea80610bb2cf562c05692ccb647f1379e618",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/utils/misc.py",
+      "pre_runtime_cleanup_sha256": "05aa51247936a8d3faac27f90b78b65ff83a688259bed55d114b6a617ced532d",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/utils/pytorch_utils.py",
+      "path": "src/humanwam/utils/pytorch_utils.py",
       "original_sha256": "34a22fc6cc86392aaba5e74f7e9ec3927c871569f09bd3384256ed6148bf17af",
-      "exported_sha256": "34a22fc6cc86392aaba5e74f7e9ec3927c871569f09bd3384256ed6148bf17af",
-      "changed": false
+      "exported_sha256": "c7738c67148446261bca319801d80eb602cd5e1cca16d5c9a951014a47db5de9",
+      "changed": true,
+      "pre_namespace_rename_path": "src/fastwam/utils/pytorch_utils.py",
+      "pre_runtime_cleanup_sha256": "34a22fc6cc86392aaba5e74f7e9ec3927c871569f09bd3384256ed6148bf17af",
+      "modification_notice": "Removed unused runtime code and publishing tools; retained training/evaluation paths"
     },
     {
-      "path": "src/fastwam/utils/samplers.py",
+      "path": "src/humanwam/utils/samplers.py",
       "original_sha256": "7a16ab85a19d4f0b1b2fbe8e009e3d726cec3e29d7d29725445d11622a21d361",
       "exported_sha256": "7a16ab85a19d4f0b1b2fbe8e009e3d726cec3e29d7d29725445d11622a21d361",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/samplers.py"
     },
     {
-      "path": "src/fastwam/utils/training_gc.py",
+      "path": "src/humanwam/utils/training_gc.py",
       "original_sha256": "7fd888ac52b0546565097956c42ba93c20b87523febeb34f0f9c7bd98e9aa610",
       "exported_sha256": "7fd888ac52b0546565097956c42ba93c20b87523febeb34f0f9c7bd98e9aa610",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/training_gc.py"
     },
     {
-      "path": "src/fastwam/utils/video_io.py",
+      "path": "src/humanwam/utils/video_io.py",
       "original_sha256": "9e9898b021a44e87aa1b4e6d13e3755a9869a2e27a7eb53c72a6802808d5bd80",
       "exported_sha256": "9e9898b021a44e87aa1b4e6d13e3755a9869a2e27a7eb53c72a6802808d5bd80",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/video_io.py"
     },
     {
-      "path": "src/fastwam/utils/video_metrics.py",
+      "path": "src/humanwam/utils/video_metrics.py",
       "original_sha256": "aaa37e458cc9e4bb79a17923b5ff5900c97b4309f7abd50db44cf76e9143ffd6",
       "exported_sha256": "aaa37e458cc9e4bb79a17923b5ff5900c97b4309f7abd50db44cf76e9143ffd6",
-      "changed": false
+      "changed": false,
+      "pre_namespace_rename_path": "src/fastwam/utils/video_metrics.py"
     }
   ],
   "profiles": [
@@ -945,5 +1102,19 @@
       }
     }
   ],
-  "path_base": "humanwam_vanilla/ (paths are relative to this model directory)"
+  "path_base": "humanwam_vanilla/ (paths are relative to this model directory)",
+  "namespace_migration": {
+    "from": "fastwam",
+    "to": "humanwam",
+    "checkpoint_parameter_keys_changed": false
+  },
+  "runtime_cleanup": {
+    "scope": "Portable training and evaluation runtime",
+    "removed": [
+      "Remote checkpoint publication and mirroring",
+      "Dataset recording and Hub publication",
+      "Unreferenced utility/model helpers"
+    ],
+    "local_weight_retention": "All weight checkpoints retained; completed training-state retention unchanged"
+  }
 }

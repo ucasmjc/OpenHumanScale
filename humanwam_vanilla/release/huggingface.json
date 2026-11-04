@@ -1,68 +1,65 @@
 {
   "namespace": "DAGroup-PKU",
-  "structure": "One OpenHumanScale collection; one model repository per experiment group; variant/checkpoint subdirectories",
-  "repository_count": 9,
+  "structure": "One Open-HumanScale collection; one shared model repository; model/experiment/variant/checkpoint subdirectories",
+  "repository_count": 1,
   "collections": [
     {
       "title": "OpenHumanScale",
-      "repo_ids": [
-        "DAGroup-PKU/OpenHumanScale-RoboTwin",
-        "DAGroup-PKU/OpenHumanScale-Data-Scaling",
-        "DAGroup-PKU/OpenHumanScale-Data-Diversity",
-        "DAGroup-PKU/OpenHumanScale-Alignment",
-        "DAGroup-PKU/OpenHumanScale-Action-Supervision",
-        "DAGroup-PKU/OpenHumanScale-Multiview",
-        "DAGroup-PKU/OpenHumanScale-Demo-Efficiency",
-        "DAGroup-PKU/OpenHumanScale-Robot-vs-Ego",
-        "DAGroup-PKU/OpenHumanScale-Model-Ablations"
-      ]
+      "repo_ids": [],
+      "url": "https://huggingface.co/collections/DAGroup-PKU/open-humanscale"
     }
   ],
   "repositories": [
     {
-      "group": "main_result",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-RoboTwin",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "scaling",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Data-Scaling",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "diversity",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Data-Diversity",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "alignment",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Alignment",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "action_supervision",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Action-Supervision",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "multiview",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Multiview",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "demonstration_efficiency",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Demo-Efficiency",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "robot_vs_ego",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Robot-vs-Ego",
-      "state": "planned_not_created"
-    },
-    {
-      "group": "model_ablations",
-      "repo_id": "DAGroup-PKU/OpenHumanScale-Model-Ablations",
-      "state": "planned_not_created"
+      "repo_id": null,
+      "state": "canonical_repo_id_pending",
+      "experiment_groups": [
+        {
+          "group": "main_result",
+          "proposed_path": "humanwam-vanilla/robotwin",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "scaling",
+          "proposed_path": "humanwam-vanilla/data-scaling",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "diversity",
+          "proposed_path": "humanwam-vanilla/data-diversity",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "alignment",
+          "proposed_path": "humanwam-vanilla/alignment",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "action_supervision",
+          "proposed_path": "humanwam-vanilla/action-supervision",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "multiview",
+          "proposed_path": "humanwam-vanilla/multiview",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "demonstration_efficiency",
+          "proposed_path": "humanwam-vanilla/demo-efficiency",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "robot_vs_ego",
+          "proposed_path": "humanwam-vanilla/robot-vs-ego",
+          "state": "path_pending_confirmation"
+        },
+        {
+          "group": "model_ablations",
+          "proposed_path": "humanwam-vanilla/model-ablations",
+          "state": "path_pending_confirmation"
+        }
+      ]
     }
   ],
   "weights_published": false,

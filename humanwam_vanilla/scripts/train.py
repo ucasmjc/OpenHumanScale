@@ -23,7 +23,7 @@ def main():
     print(json.dumps(report, indent=2))
     if args.check_config:
         return
-    from fastwam.runtime import run_training
+    from humanwam.runtime import run_training
     run_training(cfg)
 
 

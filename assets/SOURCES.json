@@ -46,5 +46,11 @@
     "rendering": "First PDF page rendered at 1800 px width; no content edits",
     "source_sha256": "b0b1b3acb3efca1663fb1b800231aed57b3529249b44fc3c49c597661275400b",
     "manuscript_revision": "3069a9e8166b72df04e0d31c71af4a0b41cc7b94"
+  },
+  "data_overview.png": {
+    "source": "figs/data/data_overview.pdf",
+    "manuscript_revision": "8ef4086e9252b2a17599a861dd0c368403efc3a2",
+    "source_sha256": "314e9000de51ad64f83bfc5d4e4263888c849b8217e0e5569370dc67bfa10af9",
+    "rendering": "First PDF page rendered at 2400 px width; no content edits"
   }
 }

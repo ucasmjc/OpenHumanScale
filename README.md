@@ -4,13 +4,11 @@
 
 ### An Open Recipe for Scaling Human and Robot Experience<br>for Embodied Foundation Models
 
-[![arXiv](https://img.shields.io/badge/arXiv-Coming_soon-B31B1B?style=flat&logo=arxiv&logoColor=white)](#-paper-and-citation)
-[![Project Page](https://img.shields.io/badge/%F0%9F%8C%90_Project_Page-Coming_soon-4285F4?style=flat)](https://dagroup-pku.github.io/open-humanscale/)
-[![Hugging Face Dataset](https://img.shields.io/badge/Hugging_Face-Dataset_%C2%B7_Coming_soon-FFD21E?style=flat&logo=huggingface)](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k)
+[![arXiv](https://img.shields.io/badge/arXiv-Coming_soon-B31B1B?style=flat&logo=arxiv&logoColor=white)](#citation)
+[![Project Page](https://img.shields.io/badge/%F0%9F%8C%90-Project_Page-4285F4?style=flat)](https://jiankai-ss.github.io/open-humanscale/)
+[![Hugging Face Corpus](https://img.shields.io/badge/Hugging_Face-Corpus_%C2%B7_Coming_soon-FFD21E?style=flat&logo=huggingface)](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k)
 [![Hugging Face Models](https://img.shields.io/badge/Hugging_Face-Model_Collection-FFD21E?style=flat&logo=huggingface)](https://huggingface.co/collections/DAGroup-PKU/open-humanscale)
-[![ModelScope Dataset](https://img.shields.io/badge/ModelScope-Dataset_%C2%B7_Coming_soon-624AFF?style=flat&logo=modelscope&logoColor=white)](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3)
-
-[**Dataset**](#-open-humanscale-50k) · [**Scaling**](#-scaling-human-experience) · [**Zero-Shot**](#-zero-shot-robot-learning) · [**Getting Started**](#-getting-started) · [**Release Plan**](ROADMAP.md) · [**Experiments**](humanwam_vanilla/docs/experiments.md)
+[![ModelScope Corpus](https://img.shields.io/badge/ModelScope-Corpus_%C2%B7_Not_uploaded_yet-624AFF?style=flat&logo=modelscope&logoColor=white)](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3)
 
 </div>
 
@@ -21,179 +19,174 @@
 Scaling egocentric pretraining from **100 to 50,000 hours** raises Scene-OOD
 success from **49.1% to 73.2%**. Adding human data to a fixed robot corpus
 improves zero-shot success from **11.48% to 13.94% on RoboTwin** and from
-**20.0% to 30.5% across 20 real-world tasks**. With refined post-training,
-RoboTwin success reaches **92.70% Clean / 84.60% Random (88.65% average)**.
+**20.0% to 30.5% across 20 real-world tasks**.
 
-| Resource | Links | Availability |
-| --- | --- | --- |
-| **Open-HumanScale-50k dataset** | [Hugging Face](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k) · [ModelScope](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3) | Uploading; public release pending |
-| **Model weights** | [Hugging Face Collection](https://huggingface.co/collections/DAGroup-PKU/open-humanscale) · [Checkpoint plan](ROADMAP.md#m1--main-policy-and-evaluation-in-progress) | Collection available; weights coming soon |
-| **HumanWAM-Vanilla code** | [Source](humanwam_vanilla/src/) · [Setup](humanwam_vanilla/README.md) | Code preview available; full release in progress |
-| **HumanWAM-Goal code** | [Model directory](humanwam_goal/) | Coming soon |
-| **Vanilla training scripts** | [RoboTwin training](humanwam_vanilla/scripts/train.py) · [Configs](humanwam_vanilla/configs/) · [Guide](humanwam_vanilla/docs/code_guide.md) · [Pretraining / mid-training plan](ROADMAP.md#full-humanwam-vanilla-workflows-in-progress) | RoboTwin available; pre/mid-training pending |
-| **Goal training scripts** | [Release plan](ROADMAP.md#humanwam-goal-coming-soon) | Coming soon |
+> 🏆 **RoboTwin 2.0 Benchmark — Rank #1.** With refined post-training,
+> **HumanWAM-Goal** achieves **88.65% average success**, with **92.70% Clean / 84.60% Random**.
+> Co-train track, without observed depth; comparison reported in our technical report.
 
-[Release plan](ROADMAP.md) · [Resource status](docs/resources.md) · [Experiment index](humanwam_vanilla/docs/experiments.md)
+[![Watch the Open-HumanScale demo](https://jiankai-ss.github.io/open-humanscale/assets/posters/presentation/Open-HumanScale_v4.jpg)](https://jiankai-ss.github.io/open-humanscale/assets/videos/presentation/Open-HumanScale_v4.mp4)
+
+<p align="center"><a href="https://jiankai-ss.github.io/open-humanscale/assets/videos/presentation/Open-HumanScale_v4.mp4">▶ Watch the full demo</a> · <a href="https://jiankai-ss.github.io/open-humanscale/">More demos on the project page</a></p>
 
 ## 🔥 News
 
-- **[2026/11/04]** Added the latest paper teaser, HumanWAM-Goal post-training results,
-  hybrid scaling curves, and Open-HumanScale-50k dataset links.
-- **[2026/11/03]** Updated scaling figures and results from the latest manuscript.
-  The 50k-hour LeRobot v3 dataset conversion is complete; dataset uploads are in progress.
-- **[2026/11/02]** The first public code preview is available: HumanWAM model and
-  trainer, RoboTwin data loading, configuration references, and CPU checks.
-- **[Next]** Complete the HumanWAM-Vanilla workflows and checkpoint release.
-  Follow the [release plan](ROADMAP.md) for progress and deliverables.
+- **[2026/11/05]** We release the **Open-HumanScale technical report**!
+  [Model weights](https://huggingface.co/collections/DAGroup-PKU/open-humanscale)
+  and the [Open-HumanScale-50k corpus](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k)
+  are being uploaded. We are actively organizing the code and documentation.
 
-## 📦 Open-HumanScale-50k
+## Table of Contents
 
-**50,000 hours · 35.9M clips · Video, hand motion, and language**
+- [Open-HumanScale-50k Corpus](#open-humanscale-50k-corpus)
+- [HumanWAM-Vanilla](#humanwam-vanilla)
+  - [Weight Download](#vanilla-weight-download)
+  - [Environment Setup & Quick Start](#vanilla-quick-start)
+  - [Training](#vanilla-training)
+  - [Inference](#vanilla-inference)
+  - [Reproduction Guide](#vanilla-reproduction-guide)
+- [HumanWAM-Goal](#humanwam-goal)
+  - [Weight Download](#goal-weight-download)
+  - [Environment Setup & Quick Start](#goal-quick-start)
+  - [Inference](#goal-inference)
+- [Release Plan](#release-plan)
+- [License](#license)
+- [Citation](#citation)
+- [Acknowledgements](#acknowledgements)
+
+## Open-HumanScale-50k Corpus
+
+**Open-HumanScale-50k: 50,000 hours · 35.9M clips · Video, hand motion, and language.**
 
 Curated from HumanNet, EgoSuite-Open100K, EgoDex, Gen-HumanEgo, and EgoVerse,
 with hand-visibility, motion-stability, and activity filtering, followed by
 cross-source alignment to a unified bimanual action representation.
 
-LeRobot v3 conversion is complete; uploads are in progress. See
-[resource details](docs/resources.md) for availability and packaging information.
+![Construction of Open-HumanScale-50k: five data sources, data curation, and cross-source action alignment](assets/data_overview.png)
 
-## 📈 Scaling Human Experience
+*Construction of Open-HumanScale-50k. (a) Five data sources and their retained
+hours. (b) Curation by hand visibility, motion stability, and manipulation
+activity. (c) Alignment of camera frames, wrist axes, and gripper openness.*
 
-**More human experience improves downstream generalization.** Scaling egocentric
-pretraining from **100 to 50,000 hours** raises Scene-OOD success from **49.1% to
-73.2%** and Random success from **21.5% to 42.9%** with inverse-dynamics attention.
+- **Corpus:** [Hugging Face](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k).
+- **Mirror:** [ModelScope](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3) — not uploaded yet.
+- **Format:** LeRobot v3, with compressed MP4 video and language annotations.
 
-**Isolated attention · 100–10,000 hours**
+The Hugging Face upload is in progress. Download instructions are being prepared.
 
-![Egocentric data scaling with isolated attention: Clean, Scene-OOD, and Random success](assets/ego_scaling_ia.png)
+## HumanWAM-Vanilla
 
-**Inverse-dynamics attention · 100–50,000 hours**
+<a id="vanilla-weight-download"></a>
+### Weight Download
 
-![Egocentric data scaling with inverse-dynamics attention: Clean, Scene-OOD, and Random success](assets/ego_scaling_idm.png)
+Pretrained, RoboTwin post-trained, scaling, and ablation checkpoints are being
+uploaded to **one model repository**, organized under separate paths and linked
+from the [Open-HumanScale Collection](https://huggingface.co/collections/DAGroup-PKU/open-humanscale).
 
-*After RoboTwin post-training. The scaling study reports the best success
-rate per evaluation setting; dashed blue curves are empirical log-linear fits,
-and gray lines are No-Ego baselines.*
+| Checkpoint | Clean2Clean | Clean2Random | Average | Status |
+| --- | ---: | ---: | ---: | --- |
+| HumanWAM-Vanilla · RoboTwin post-trained | **92.08%** | **68.88%** | **80.48%** | [Uploading](https://huggingface.co/collections/DAGroup-PKU/open-humanscale) |
+| HumanWAM-Vanilla · egocentric pretrained | — | — | — | [Uploading](https://huggingface.co/collections/DAGroup-PKU/open-humanscale) |
 
-### Hybrid scaling and post-training
+Results are reported in the technical report; both RoboTwin settings use the
+same post-trained checkpoint. Direct download paths are being prepared.
 
-With robot data fixed at **14,618 hours**, adding **45,938 hours** of human data
-raises post-trained Random success from **70.80% to 74.36%** under the controlled
-scaling recipe.
+Scaling human pretraining from 100 to 50,000 hours improves Scene-OOD success
+from **49.1% to 73.2%** in the controlled IDM study:
 
-![RoboTwin post-training success as robot-only and hybrid human–robot data scale](assets/hybrid_posttraining_scaling.png)
+![Egocentric scaling under inverse-dynamics attention](assets/ego_scaling_idm.png)
 
-With a refined post-training recipe and photometric augmentation,
-**HumanWAM-Goal reaches 88.65% average success on RoboTwin 2.0**:
+<a id="vanilla-quick-start"></a>
+### Environment Setup & Quick Start
 
-| Model | Clean2Clean | Clean2Random | Average |
-| --- | ---: | ---: | ---: |
-| HumanWAM-Vanilla | 92.08% | 68.88% | 80.48% |
-| **HumanWAM-Goal** | **92.70%** | **84.60%** | **88.65%** |
+🚧 Work in progress.
 
-*Paper-reported results after clean-only post-training. The refined Goal result
-uses additional augmentation and recipe changes; it is separate from the controlled
-scaling curve above and from the zero-shot results below.*
+<a id="vanilla-training"></a>
+### Training
 
-## 🎯 Zero-Shot Robot Learning
+🚧 Work in progress.
 
-HumanWAM-Goal executes tasks **without target-task parameter updates**.
+<a id="vanilla-inference"></a>
+### Inference
 
-### RoboTwin: success and task coverage
+🚧 Work in progress.
 
-With robot data fixed at **14,618 hours**, adding **45,938 hours** of human data
-raises average zero-shot success from **11.48% to 13.94%** and per-checkpoint
-task coverage from **18 to 22 of 50 tasks**.
+<a id="vanilla-reproduction-guide"></a>
+### Reproduction Guide
+
+🚧 Work in progress.
+
+## HumanWAM-Goal
+
+<a id="goal-weight-download"></a>
+### Weight Download
+
+Hybrid pretrained / zero-shot checkpoints and RoboTwin post-trained weights are
+being uploaded under Goal-specific paths in the same model repository, linked
+from the [Open-HumanScale Collection](https://huggingface.co/collections/DAGroup-PKU/open-humanscale).
+
+| Checkpoint | Clean2Clean | Clean2Random | Average | Status |
+| --- | ---: | ---: | ---: | --- |
+| HumanWAM-Goal · RoboTwin post-trained | **92.70%** | **84.60%** | **88.65%** | [Uploading](https://huggingface.co/collections/DAGroup-PKU/open-humanscale) |
+
+Results are reported in the technical report under the official 10,000-episode
+protocol. Direct download paths are being prepared.
+
+Without target-task parameter updates, HumanWAM-Goal achieves **13.94% mean
+zero-shot success on RoboTwin** and **30.5% across 20 real-world tasks**.
 
 <p align="center">
-  <img src="assets/zero_shot_robotwin_success.png" width="49%" alt="RoboTwin zero-shot Clean and Random success as robot and human data scale">
-  <img src="assets/zero_shot_robotwin_coverage.png" width="49%" alt="RoboTwin zero-shot task coverage per checkpoint and cumulatively across configurations">
+  <img src="assets/zero_shot_robotwin_success.png" width="49%" alt="RoboTwin zero-shot success under hybrid data scaling">
+  <img src="assets/zero_shot_robotwin_coverage.png" width="49%" alt="RoboTwin zero-shot task coverage under hybrid data scaling">
 </p>
 
-*50 Clean and 50 Random episodes per executed task; all 50 tasks remain in the
-scoring denominator. Coverage requires ≥2% mean success across the two settings.
-“Cumulative” is the union across independently trained configurations.*
+<a id="goal-quick-start"></a>
+### Environment Setup & Quick Start
 
-### Real robots: scaling and per-task results
+🚧 Work in progress.
 
-Across **20 tasks**, average zero-shot success increases from **20.0% → 26.0% →
-30.5%** as human data scale from **0 → 15,901 → 45,938 hours**, with robot data fixed.
-Task coverage grows from **10/20 → 14/20 → 16/20** tasks with at least one success
-in 10 trials.
+<a id="goal-inference"></a>
+### Inference
 
-![Real-robot zero-shot success by task difficulty and training-data scale](assets/zero_shot_real_robot_scaling.png)
+🚧 Work in progress.
 
-![Real-robot zero-shot success and progress scores on 20 tasks](assets/zero_shot_real_robot_tasks.png)
+## Release Plan
 
-*10 trials per task. The 30.5% result uses the scaling-series configuration.
-“Balanced” is a separate 50:50 robot/human sampling variant at the same data scale;
-it raises success on the Hard task group from 19% to 27%, with 29% success overall.*
+- [ ] Open-HumanScale-50k corpus — uploading to Hugging Face; ModelScope pending.
+- [ ] Pretrained and RoboTwin post-trained weights — uploading.
+- [ ] HumanWAM-Vanilla code, training, inference, and reproduction guide — in progress.
+- [ ] HumanWAM-Goal code, environment setup, and inference — in progress.
 
-The paper also demonstrates **visual-goal in-context learning**: a frozen policy
-changes its behavior when supplied different goal images, including human goal
-images. Real-robot demos will be hosted on the
-[project page](https://dagroup-pku.github.io/open-humanscale/) (coming soon).
-These figures report paper results. For the released HumanWAM code's
-post-training benchmark and checkpoint mapping, see [result details](humanwam_vanilla/docs/paper_alignment.md).
+## License
 
-## 🗓️ Release Plan
+Open-HumanScale is released under the [Apache License 2.0](Apache-2.0.txt).
+Existing component notices and license terms remain applicable. Corpus and
+checkpoint terms will be specified in their release cards.
 
-- [x] Organize the current HumanWAM-Vanilla source, configurations, and tests in one model directory.
-- [x] Paper teaser, scaling and zero-shot figures, benchmark results, and experiment index.
-- [x] Convert the 50k-hour corpus to LeRobot v3.
-- [ ] Complete dataset uploads and publish download instructions.
-- [ ] Package the full HumanWAM-Vanilla data, pretraining, adaptation, and evaluation workflows.
-- [ ] Release checkpoints with matching configurations and normalization statistics.
-- [ ] RoboTwin inference adapter and evaluation commands.
-- [ ] Data preparation tools and a verified post-training walkthrough.
-- [ ] Complete experiment configurations, checkpoints, and result mappings.
-- [ ] Add HumanWAM-Goal code and model documentation.
+## Citation
 
-Weights will be organized under the [**Open-HumanScale Collection**](https://huggingface.co/collections/DAGroup-PKU/open-humanscale) in `DAGroup-PKU`,
-with **one model repository per experiment group**. Download links will appear
-here when the bundles are available.
+If you find Open-HumanScale useful, please cite our technical report.
+The entry below follows the current manuscript; the arXiv identifier will be
+added when available.
 
-See [ROADMAP.md](ROADMAP.md) for milestone details and
-[CHANGELOG.md](CHANGELOG.md) for completed updates. This is currently a code
-preview; the full checkpoint-to-evaluation workflow is being prepared.
-
-## 🚀 Getting Started
-
-Clone the repository and inspect the source release with Python 3.10+:
-
-```bash
-git clone https://github.com/ucasmjc/OpenHumanScale.git
-cd OpenHumanScale/humanwam_vanilla
-python3 scripts/check_release.py
+```bibtex
+@unpublished{ma2026openhumanscale,
+  title = {Open-HumanScale: An Open Recipe for Scaling Human and Robot Experience for Embodied Foundation Models},
+  author = {Juncheng Ma and Jiaxin Li and Jiankai Tu and Bo Liang and
+    Guodong Lv and Yufan Deng and Junzhe Tang and Liangzhu Yang and
+    Chen Bian and Zicong Cao and Baohao Zhu and Jianxin Bi and
+    Tengfei Yan and Yinyuan Zhang and Kewei Zhang and Xinglong Chen and
+    Kaiqi Chen and Duomin Wang and Xiaotian Tang and Liang Tan and
+    Li Li and Yuan Xu and Haosen Yang and Yuqi Wang and
+    Jingfei Xia and Songyan Huang and Zhiyang Dou and Zhen Dong and
+    Enze Xie and Tat-Seng Chua and Daquan Zhou},
+  year = {2026},
+  note = {Technical report},
+  url = {https://jiankai-ss.github.io/open-humanscale/}
+}
 ```
 
-This source check needs no GPU or model download. Continue with the
-[code guide](humanwam_vanilla/docs/code_guide.md) for installation, local data paths, and the
-fine-tuning entry point. Public checkpoint downloads and simulator evaluation
-are tracked in the [next milestone](ROADMAP.md#m1--main-policy-and-evaluation-in-progress).
+## Acknowledgements
 
-| Resource | Contents |
-| --- | --- |
-| [Paper, project page, datasets, and models](docs/resources.md) | Publication links and availability |
-| [Code guide](humanwam_vanilla/docs/code_guide.md) | Installation and RoboTwin post-training setup |
-| [Experiment index](humanwam_vanilla/docs/experiments.md) | Experiment groups and planned weight repositories |
-| [Result details](humanwam_vanilla/docs/paper_alignment.md) | Reported policy, evaluation protocol, and provenance |
-| [Release plan](ROADMAP.md) | Upcoming deliverables and completion criteria |
-
-## 🤝 Feedback
-
-Please use [GitHub Issues](https://github.com/ucasmjc/OpenHumanScale/issues) for
-bugs and reproduction questions. Include your environment, configuration, and
-relevant error output when reporting a problem.
-
-## 📄 Paper and Citation
-
-arXiv and the project page are coming soon. The paper link and BibTeX entry will
-be added when available. Results and terminology follow the November 4, 2026
-manuscript; dataset and model availability is tracked in [Resources](docs/resources.md).
-
-## License and Acknowledgments
-
-We build on FastWAM, Wan, and LeRobot. The inherited source license is
-[MIT](LICENSE); vendored components retain their own licenses and notices.
-See [third-party acknowledgments](humanwam_vanilla/THIRD_PARTY_NOTICES.md).
+We thank [FastWAM](https://github.com/yuantianyuan01/FastWAM) and
+[ViGAR](https://github.com/DAGroup-PKU/ViGAR) for their open-source contributions.

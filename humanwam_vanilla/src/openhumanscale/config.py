@@ -1,3 +1,4 @@
+# Modified by Open-HumanScale contributors: package namespace renamed to humanwam.
 """Validate portable RoboTwin configs before importing the training stack."""
 import json
 from pathlib import Path
@@ -26,7 +27,7 @@ def validate_config(cfg, *, check_files=False):
         raise ValueError('Historical reference configs are records, not a new training recipe')
     data = value['data']
     train = data['train']
-    if train.get('_target_') != 'fastwam.datasets.lerobot.robot_video_dataset.RobotVideoDataset':
+    if train.get('_target_') != 'humanwam.datasets.lerobot.robot_video_dataset.RobotVideoDataset':
         raise ValueError('Only the RoboTwin RobotVideoDataset is supported')
     if train.get('val_set_proportion') != 0.0 or train.get('is_training_set') is not True:
         raise ValueError('New training must use the full intended corpus: val_set_proportion=0.0, is_training_set=true')
@@ -36,7 +37,7 @@ def validate_config(cfg, *, check_files=False):
         if data.get(key):
             raise ValueError(f'data.{key} is not supported by this RoboTwin fine-tuning entry point')
     model = value['model']
-    if model.get('_target_') != 'fastwam.runtime.create_fastwam' or model.get('model_class') != 'fastwam.models.wan22.fastwam_idm.FastWAMIDM':
+    if model.get('_target_') != 'humanwam.runtime.create_fastwam' or model.get('model_class') != 'humanwam.models.wan22.fastwam_idm.FastWAMIDM':
         raise ValueError('This initial source profile requires the exported IDM model factory')
     if model['action_dit_config'].get('separate_ego_action_tokenizer') is not True:
         raise ValueError('New RoboTwin training requires separate_ego_action_tokenizer=true')

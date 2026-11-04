@@ -1,12 +1,13 @@
 """Exercise the ordinary RoboTwin video route after removing pretrain readers."""
 from types import SimpleNamespace
+import json
 
 import av
 import numpy as np
 import pytest
 import torch
 
-from fastwam.datasets.lerobot.lerobot.lerobot_dataset import LeRobotDataset
+from humanwam.datasets.lerobot.lerobot.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
 
 
 def test_episode_timestamps_keep_video_offset_and_frame_order(tmp_path, monkeypatch):
@@ -45,3 +46,38 @@ def test_pretrain_archive_binding_is_not_silently_decoded(tmp_path):
     dataset = SimpleNamespace(root=tmp_path)
     with pytest.raises(ValueError, match='video_binding.json archive inputs'):
         LeRobotDataset._query_videos(dataset, {'cam_high': [0.0]}, 0)
+
+
+def test_existing_dataset_still_loads_without_recording_utilities(tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    def no_download(*args, **kwargs):
+        raise AssertionError('Local training data must not require a network request')
+
+    monkeypatch.setattr(LeRobotDatasetMetadata, 'pull_from_repo', no_download)
+    meta = tmp_path / 'meta'
+    meta.mkdir()
+    info = {
+        'codebase_version': 'v2.1', 'robot_type': 'test', 'fps': 10,
+        'total_episodes': 1, 'total_frames': 2, 'total_tasks': 1,
+        'total_chunks': 1, 'chunks_size': 1000,
+        'data_path': 'data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet',
+        'video_path': None,
+        'features': {'action': {'dtype': 'float32', 'shape': [2], 'names': None}},
+    }
+    (meta / 'info.json').write_text(json.dumps(info))
+    (meta / 'tasks.jsonl').write_text(json.dumps({'task_index': 0, 'task': 'move object'}) + '\n')
+    (meta / 'episodes.jsonl').write_text(json.dumps({'episode_index': 0, 'length': 2, 'tasks': ['move object']}) + '\n')
+    data = tmp_path / 'data/chunk-000'
+    data.mkdir(parents=True)
+    pq.write_table(pa.table({
+        'action': pa.array([[0.0, 1.0], [1.0, 0.0]], type=pa.list_(pa.float32())),
+        'episode_index': [0, 0], 'index': [0, 1], 'task_index': [0, 0],
+        'frame_index': [0, 1], 'timestamp': [0.0, 0.1],
+    }), data / 'episode_000000.parquet')
+    metadata = LeRobotDatasetMetadata('test/local', root=tmp_path, skip_episode_stats=True)
+    dataset = LeRobotDataset('test/local', root=tmp_path, metadata=metadata,
+                            lazy_parquet_loading=True, video_backend='pyav')
+    assert len(dataset) == 2
+    torch.testing.assert_close(dataset[1]['action'], torch.tensor([1.0, 0.0]))

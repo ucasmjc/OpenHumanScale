@@ -6,9 +6,70 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+PRIVACY_PATTERNS = {
+    'internal absolute path': re.compile(
+        r'(?<![\w./:])/(?:mnt|pfs|home|Users|root|workspace|scratch|nas|nfs|lustre)/'
+        r'[^\s\"\'<>),;`]+|[A-Za-z]:\\Users\\[^\s\"\']+'
+    ),
+    'private IPv4 address': re.compile(
+        r'(?<![\d.])(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|'
+        r'172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})(?![\d.])'
+    ),
+    'credential token': re.compile(
+        r'\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|'
+        r'hf_[A-Za-z0-9]{20,}|olp_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})\b'
+    ),
+    'private key': re.compile(r'-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----'),
+    'credential in URL': re.compile(r'https?://[^\s/:@]+:[^\s/@]+@'),
+    'literal credential assignment': re.compile(
+        r'''(?i)\b(?:api[_-]?key|access[_-]?key(?:[_-]?id)?|secret[_-]?key|password|auth[_-]?token|access[_-]?token)\s*[:=]\s*["'][^"'\n]{8,}["']'''
+    ),
+}
+
+
+def privacy_findings(text):
+    """Report locations and categories, never the matched sensitive values."""
+    findings = []
+    for category, pattern in PRIVACY_PATTERNS.items():
+        for match in pattern.finditer(text):
+            if category == 'private IPv4 address':
+                start = text.rfind('\n', 0, match.start()) + 1
+                end = text.find('\n', match.end())
+                line = text[start:end if end >= 0 else len(text)]
+                # NVIDIA cuRAND uses four-component versions that resemble IPs.
+                # Only exempt a complete package-version JSON field, not bare addresses.
+                if re.fullmatch(r'\s*"nvidia-curand-cu\d+"\s*:\s*"\d+(?:\.\d+){3}"\s*,?\s*', line):
+                    continue
+            findings.append((text.count('\n', 0, match.start()) + 1, category))
+    return findings
+
+
+def release_text_files(repo_root):
+    """Include tracked and untracked release files, excluding local build output."""
+    if (repo_root / '.git').exists():
+        output = subprocess.check_output(
+            ['git', '-C', str(repo_root), 'ls-files', '-co', '--exclude-standard', '-z']
+        )
+        candidates = [repo_root / name for name in set(output.decode().split('\0')) if name]
+    else:
+        excluded = {'.git', '.venv', '__pycache__', '.pytest_cache', 'build', 'dist'}
+        candidates = [p for p in repo_root.rglob('*')
+                      if not any(part in excluded or part.endswith('.egg-info')
+                                 for part in p.relative_to(repo_root).parts)]
+    for path in sorted(candidates):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding='utf-8')
+        except UnicodeError:
+            continue
+        yield path, text
 
 
 def check(root=ROOT):
@@ -46,24 +107,25 @@ def check(root=ROOT):
                 if node.module is None:
                     names += [base + '.' + a.name for a in node.names]
             for name in names:
-                if name.split('.')[0] in ('fastwam', 'openhumanscale') and name not in modules and name not in namespaces:
+                if name.split('.')[0] in ('humanwam', 'openhumanscale') and name not in modules and name not in namespaces:
                     errors.append(f'{path.relative_to(root)}: missing local import {name}')
     manifest = json.loads((root / 'release/source_manifest.json').read_text())
     for row in manifest['files']:
         path = root / row['path']
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != row['exported_sha256']:
             errors.append(f'Source differs from export manifest: {row["path"]}')
-    # Inspect tracked candidates only; local bindings and generated outputs are private.
-    candidates = [*sources, *sorted((root / 'configs').rglob('*.yaml'))]
-    for path in candidates:
-        if path.name == 'paths.local.yaml':
-            continue
-        if re.search(r'/mnt/(?:pfs|bos)/|/home/ss-oss/|/Users/|192\.168\.\d+\.\d+', path.read_text()):
-            errors.append(f'Internal infrastructure reference: {path.relative_to(root)}')
+    # Cover comments, docstrings, configs, scripts, and release metadata alike.
+    repo_root = root.parent
+    scanned_text_files = 0
+    for path, text in release_text_files(repo_root):
+        scanned_text_files += 1
+        for line, category in privacy_findings(text):
+            errors.append(f'{path.relative_to(repo_root)}:{line}: {category}')
     hf = json.loads((root / 'release/huggingface.json').read_text())
     if hf['namespace'] != 'DAGroup-PKU' or len(hf['collections']) != 1:
         errors.append('HF layout must use one collection under DAGroup-PKU')
     return dict(source_files=len(sources), copied_source_files=len(manifest['files']),
+                scanned_text_files=scanned_text_files,
                 reference_profiles=len(manifest['profiles']), errors=errors,
                 static_checks_passed=not errors, runtime_verified=False)
 
