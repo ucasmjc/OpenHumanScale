@@ -5,6 +5,9 @@ Completed public updates are recorded here. Future work is tracked in
 
 ## 2026-11-04
 
+- Lead the introduction with generalization, zero-shot, and post-training results;
+  consolidate dataset, weights, both codebases, and training links into one resource table.
+
 - Refine the header to a type-led SVG with a restrained gradient and integrated
   research subtitle; remove the pictogram and duplicate standalone tagline.
 

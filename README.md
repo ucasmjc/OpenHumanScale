@@ -16,23 +16,24 @@
 
 ![Open-HumanScale overview: 50k-hour egocentric corpus, pure and hybrid scaling, RoboTwin results, and zero-shot real-robot generalization](assets/teaser.png)
 
-**Open-HumanScale** presents an open recipe for scaling human and robot experience,
-built on **Open-HumanScale-50k**, a curated **50,000-hour** egocentric corpus with
-hand-motion and language annotations. **HumanWAM-Vanilla** connects
-future video prediction with action generation, then adapts to robot manipulation
-through post-training on robot demonstrations. **HumanWAM-Goal** explores
-zero-shot execution through hybrid human–robot training and visual goals.
+**Open-HumanScale** shows how scaling human experience improves robot
+**generalization, zero-shot execution, and post-training performance**.
+Scaling egocentric pretraining from **100 to 50,000 hours** raises Scene-OOD
+success from **49.1% to 73.2%**. Adding human data to a fixed robot corpus
+improves zero-shot success from **11.48% to 13.94% on RoboTwin** and from
+**20.0% to 30.5% across 20 real-world tasks**. With refined post-training,
+RoboTwin success reaches **92.70% Clean / 84.60% Random (88.65% average)**.
 
-The **HumanWAM-Vanilla full release** covers data processing, pretraining,
-adaptation, evaluation, and related experiments; packaging is in progress.
-**HumanWAM-Goal** will be added as a separate model implementation.
-
-| Model | Code | Status |
+| Resource | Links | Availability |
 | --- | --- | --- |
-| **HumanWAM-Vanilla** | [humanwam_vanilla/](humanwam_vanilla/) | Current code; remaining workflows and checkpoints are being packaged |
-| **HumanWAM-Goal** | [humanwam_goal/](humanwam_goal/) | Coming soon |
+| **Open-HumanScale-50k dataset** | [Hugging Face](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k) · [ModelScope](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3) | Uploading; public release pending |
+| **Model weights** | [Hugging Face Collection](https://huggingface.co/collections/DAGroup-PKU/open-humanscale) · [Checkpoint plan](ROADMAP.md#m1--main-policy-and-evaluation-in-progress) | Collection available; weights coming soon |
+| **HumanWAM-Vanilla code** | [Source](humanwam_vanilla/src/) · [Setup](humanwam_vanilla/README.md) | Code preview available; full release in progress |
+| **HumanWAM-Goal code** | [Model directory](humanwam_goal/) | Coming soon |
+| **Vanilla training scripts** | [RoboTwin training](humanwam_vanilla/scripts/train.py) · [Configs](humanwam_vanilla/configs/) · [Guide](humanwam_vanilla/docs/code_guide.md) · [Pretraining / mid-training plan](ROADMAP.md#full-humanwam-vanilla-workflows-in-progress) | RoboTwin available; pre/mid-training pending |
+| **Goal training scripts** | [Release plan](ROADMAP.md#humanwam-goal-coming-soon) | Coming soon |
 
-See each model directory for setup and the [release plan](ROADMAP.md) for availability.
+[Release plan](ROADMAP.md) · [Resource status](docs/resources.md) · [Experiment index](humanwam_vanilla/docs/experiments.md)
 
 ## 🔥 News
 
@@ -52,12 +53,6 @@ See each model directory for setup and the [release plan](ROADMAP.md) for availa
 Curated from HumanNet, EgoSuite-Open100K, EgoDex, Gen-HumanEgo, and EgoVerse,
 with hand-visibility, motion-stability, and activity filtering, followed by
 cross-source alignment to a unified bimanual action representation.
-
-| Resource | Link | Status |
-| --- | --- | --- |
-| Dataset | [Hugging Face](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k) | Paper's release destination; public release pending |
-| Dataset mirror | [ModelScope](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3) | Partial upload; public release pending |
-| Model collection | [Hugging Face](https://huggingface.co/collections/DAGroup-PKU/open-humanscale) | Collection available; checkpoints coming soon |
 
 LeRobot v3 conversion is complete; uploads are in progress. See
 [resource details](docs/resources.md) for availability and packaging information.
