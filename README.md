@@ -194,25 +194,7 @@ checkpoint terms will be specified in their release cards.
 ## Citation
 
 If you find Open-HumanScale useful, please cite our technical report.
-The entry below follows the current manuscript; the arXiv identifier will be
-added when available.
-
-```bibtex
-@unpublished{ma2026openhumanscale,
-  title = {Open-HumanScale: An Open Recipe for Scaling Human and Robot Experience for Embodied Foundation Models},
-  author = {Juncheng Ma and Jiaxin Li and Jiankai Tu and Bo Liang and
-    Guodong Lv and Yufan Deng and Junzhe Tang and Liangzhu Yang and
-    Chen Bian and Zicong Cao and Baohao Zhu and Jianxin Bi and
-    Tengfei Yan and Yinyuan Zhang and Kewei Zhang and Xinglong Chen and
-    Kaiqi Chen and Duomin Wang and Xiaotian Tang and Liang Tan and
-    Li Li and Yuan Xu and Haosen Yang and Yuqi Wang and
-    Jingfei Xia and Songyan Huang and Zhiyang Dou and Zhen Dong and
-    Enze Xie and Tat-Seng Chua and Daquan Zhou},
-  year = {2026},
-  note = {Technical report},
-  url = {https://jiankai-ss.github.io/open-humanscale/}
-}
-```
+Citation details are coming soon.
 
 ## Acknowledgements
 
