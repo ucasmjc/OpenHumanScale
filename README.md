@@ -25,9 +25,7 @@ improves zero-shot success from **11.48% to 13.94% on RoboTwin** and from
 > **HumanWAM-Goal** achieves **88.65% average success**, with **92.70% Clean / 84.60% Random**.
 > Co-train track, without observed depth; comparison reported in our technical report.
 
-[![Watch the Open-HumanScale demo](https://jiankai-ss.github.io/open-humanscale/assets/posters/presentation/Open-HumanScale_v4.jpg)](https://jiankai-ss.github.io/open-humanscale/assets/videos/presentation/Open-HumanScale_v4.mp4)
-
-<p align="center"><a href="https://jiankai-ss.github.io/open-humanscale/assets/videos/presentation/Open-HumanScale_v4.mp4">▶ Watch the full demo</a> · <a href="https://jiankai-ss.github.io/open-humanscale/">More demos on the project page</a></p>
+https://github.com/user-attachments/assets/469f1f1b-cbe2-4f89-aaaf-6cbdb3a2e50e
 
 ## 🔥 News
 
