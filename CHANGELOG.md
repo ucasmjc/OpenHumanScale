@@ -3,6 +3,16 @@
 Completed public updates are recorded here. Future work is tracked in
 [ROADMAP.md](ROADMAP.md); no numbered model release has been published yet.
 
+## 2026-11-04
+
+- Update the title and teaser from manuscript revision `3069a9e`.
+- Add hybrid post-training scaling and the HumanWAM-Goal RoboTwin result:
+  92.70% Clean2Clean, 84.60% Clean2Random, and 88.65% average.
+- Add real-robot zero-shot task coverage alongside the existing success curves.
+- Link Open-HumanScale-50k, the ModelScope upload destination, the public model
+  collection, and the planned project page with explicit availability labels.
+- Refresh figure provenance, resource documentation, and the release plan.
+
 ## 2026-11-03
 
 - Organize the repository by model: move the existing package, configuration,

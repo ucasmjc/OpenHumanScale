@@ -1,6 +1,6 @@
 # Open-HumanScale Release Plan
 
-**Last updated: 2026-11-03 · Current stage: public code preview · Next: main policy and evaluation**
+**Last updated: 2026-11-04 · Current stage: public code preview · Next: main policy and evaluation**
 
 This is the maintained plan for the **full HumanWAM-Vanilla open-source release**
 and the subsequent **HumanWAM-Goal** release. Vanilla includes data processing,
@@ -42,8 +42,9 @@ RoboTwin evaluation with its corresponding adapter.
 - [ ] Verify GPU inference and a simulator smoke rollout.
 - [ ] Run the full Clean2Clean and Clean2Random evaluations; publish episode counts
   and results, distinguishing new reproductions from the paper's records.
-- [ ] Create the Hugging Face Collection and publish `DAGroup-PKU/OpenHumanScale-RoboTwin`
-  with a model card, download instructions, checksums, and asset license information.
+- [x] Create the public [Open-HumanScale Collection](https://huggingface.co/collections/DAGroup-PKU/open-humanscale).
+- [ ] Publish `DAGroup-PKU/OpenHumanScale-RoboTwin` with a model card, download
+  instructions, checksums, and asset license information.
 - [ ] Add playable rollout demos with their task, setting, and checkpoint identified.
 
 **Complete when:** public downloads, commands, version information, and evaluation
@@ -117,11 +118,19 @@ For each group:
 compatible post-trained artifacts and runnable evaluation settings. See the
 [experiment index](humanwam_vanilla/docs/experiments.md) for the proposed repository grouping.
 
+## Open-HumanScale-50k dataset (in progress)
+
+- [x] Complete LeRobot v3 conversion of the 50k-hour corpus.
+- [x] Add the manuscript's canonical Hugging Face destination and existing ModelScope upload link.
+- [ ] Complete uploads and publish under the final dataset name.
+- [ ] Publish download instructions, checksums, and source-specific release terms.
+
 ## Publication and documentation (ongoing)
 
 - [x] Add logo badges for arXiv, the project page, Hugging Face datasets/models,
   and ModelScope datasets, with explicit availability in [Resources](docs/resources.md).
-- [x] Refresh README figures and scaling results against the November 3 manuscript.
+- [x] Refresh the title, teaser, scaling and zero-shot figures, and benchmark results
+  against the November 4 manuscript (`3069a9e`).
 - [ ] Replace pending resource badges with direct public links as releases become available.
 - [ ] Add the public paper URL and canonical BibTeX entry when available.
 - [ ] Link the public project page when its release is confirmed.

@@ -1,44 +1,61 @@
 # Project resources
 
-Last checked: November 3, 2026. The README badges link here until public releases
-are available; they will link directly to each resource when published.
+Last checked: November 4, 2026. Links follow the latest manuscript; availability
+is listed separately because some destinations are still being prepared.
 
 ## Paper
 
-**arXiv: coming soon.** The current manuscript is titled *Open-HumanScale: The
-Emerging Capability on Embodied Foundation Model from Large Scale Hybrid Data
-Scaling*. The public paper URL and canonical citation are not yet available.
+**arXiv: coming soon.** The current title is *Open-HumanScale: An Open Recipe for
+Scaling Human and Robot Experience for Embodied Foundation Models*.
+The public paper URL and canonical citation are not yet available.
 
 ## Project page
 
-**Coming soon.** The Open-HumanScale project page will host real-robot demos.
-The existing HumanNet website is a separate dataset project.
+[Open-HumanScale project page](https://dagroup-pku.github.io/open-humanscale/)
+— **coming soon**. This is the URL specified by the manuscript; it currently
+returns HTTP 404. Real-robot demos will be hosted here.
 
 ## Datasets
 
-**50k-hour LeRobot v3 collection: upload in progress; full public release pending.**
-Conversion is complete for 53,533 source shards and 31,396,799 physical episodes,
-producing 26.516 TB of video, training data, and metadata. Videos remain compressed
-MP4; captions are retained and text embedding caches are excluded.
+**Open-HumanScale-50k** is the paper's curated 50,000-hour egocentric corpus,
+with 35.9 million clips, hand-motion annotations, and language descriptions.
+Its five sources are HumanNet, EgoSuite-Open100K, EgoDex, Gen-HumanEgo, and EgoVerse.
 
 | Platform | Destination | Availability |
 | --- | --- | --- |
-| Hugging Face | `DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3` | Private upload in progress |
-| ModelScope | `DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3` | Partial upload paused while Hugging Face is prioritized |
+| Hugging Face | [Open-HumanScale-50k](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50k) | Canonical destination in the manuscript; not publicly accessible yet |
+| ModelScope | [EgoCorpus-50kH-LeRobot-v3](https://modelscope.cn/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3) | Existing upload destination; partial upload paused while Hugging Face is prioritized |
 
-These are preparation statuses, not complete dataset releases. Public download
-links and source-specific release terms will be added after publication.
-The existing [HumanNet dataset](https://huggingface.co/datasets/DAGroup-PKU/HumanNet)
-is a separate resource, not the converted 50k-hour collection.
+LeRobot v3 conversion is complete for 53,533 source shards and 31,396,799 physical
+episodes, producing 26.516 TB of video, training data, and metadata. This packaging
+count uses physical episodes, whereas the manuscript reports clips; the two
+counts should not be used interchangeably. Videos remain compressed MP4;
+captions are retained and text embedding caches are excluded.
+
+The active Hugging Face uploader still targets the private preparation repository
+[`EgoCorpus-50kH-LeRobot-v3`](https://huggingface.co/datasets/DAGroup-PKU/EgoCorpus-50kH-LeRobot-v3).
+The paper's new public name does not mean that those uploads have already moved
+or that a complete download is available. Publication under the final name,
+download instructions, and source-specific release terms are pending.
+
+The existing [HumanNet dataset repository](https://huggingface.co/datasets/DAGroup-PKU/HumanNet)
+is a separate resource, not the converted Open-HumanScale-50k release.
 
 ## Models
 
-**Hugging Face: coming soon.** HumanWAM-Vanilla checkpoints are planned under
-one OpenHumanScale Collection in `DAGroup-PKU`, with one repository per experiment
-group. The main policy bundle and evaluation interface are the next code/model
-milestone; see the [release plan](../ROADMAP.md).
+The [Open-HumanScale Hugging Face Collection](https://huggingface.co/collections/DAGroup-PKU/open-humanscale)
+is public and currently empty. **Checkpoints are coming soon.** We plan one model
+repository per experiment group, with matching configurations and normalization
+statistics. See the [release plan](../ROADMAP.md).
 
-The full HumanWAM-Vanilla release lives under [humanwam_vanilla/](../humanwam_vanilla/),
+The HumanWAM-Vanilla code lives under [humanwam_vanilla/](../humanwam_vanilla/),
 with individual workflows and checkpoints marked as available when packaged.
 [HumanWAM-Goal](../humanwam_goal/) will be released separately within this repository;
 its code and weights are not available yet.
+
+## Result and figure provenance
+
+The README follows manuscript revision `3069a9e8166b72df04e0d31c71af4a0b41cc7b94`
+from November 4, 2026. Figure paths, source hashes, and rendering details are
+recorded in [assets/SOURCES.json](../assets/SOURCES.json). These are paper-reported
+results, not newly reproduced evaluations of this code preview.

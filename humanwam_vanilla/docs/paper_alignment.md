@@ -2,7 +2,7 @@
 
 The initial code preview was checked against manuscript revision
 `99c34327fc900c7087662e4a88a00ca8a8ceeab9` from November 2, 2026.
-The paper's current title is *Open-HumanScale: The Emerging Capability on Embodied
+That manuscript's title was *Open-HumanScale: The Emerging Capability on Embodied
 Foundation Model from Large Scale Hybrid Data Scaling*. The policy in the
 pure-egocentric model section was named **HumanWAM**.
 
@@ -13,7 +13,18 @@ study now reports 73.2% Scene-OOD and 42.9% Random at 50kh; these study results
 are separate from the main policy benchmark below. This documentation refresh
 does not change the released source profile or imply new reproduction tests.
 
-The main RoboTwin evaluation is the **50kh / pre40k / W0 mid10k / post21k A2**
+The README was refreshed again against revision `3069a9e8166b72df04e0d31c71af4a0b41cc7b94`
+on November 4, 2026, titled *Open-HumanScale: An Open Recipe for Scaling Human
+and Robot Experience for Embodied Foundation Models*. It now includes the new
+teaser, hybrid post-training scaling curve, and HumanWAM-Goal's refined
+post-training result (92.70% Clean2Clean, 84.60% Clean2Random, 88.65% average).
+The controlled hybrid scaling recipe reaches 74.36% Random; the 84.60% result
+uses additional augmentation and post-training refinements. The Goal zero-shot
+result remains 13.94% average on RoboTwin and 30.5% across 20 real-robot tasks.
+These Goal results do not describe the Vanilla checkpoint below. Source figures
+and hashes are tracked in [the asset manifest](../../assets/SOURCES.json).
+
+The main Vanilla RoboTwin evaluation is the **50kh / pre40k / W0 mid10k / post21k A2**
 policy, with recorded SHA-256
 `470e8914cf87c98c94b0e157c6de603dd17267239dac92e1aadacd885b1081cf`.
 Its source run is `rtw-e50-p40-w0-s10k-a2-p24-b64x8-1028-r1`.
