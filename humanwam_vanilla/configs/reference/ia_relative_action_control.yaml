@@ -216,10 +216,8 @@ data:
           - 0.0
           - 0.0
           - 1.0
-      - _target_: humanwam.datasets.lerobot.transforms.ego_alignment.DualArmRelativePoseTransform
+      - _target_: humanwam.datasets.lerobot.transforms.pose_frame.DualArmRelativePoseTransform
         num_arms: 2
-        mode: world
-        reference: anchor
         category_keys:
           action:
           - default

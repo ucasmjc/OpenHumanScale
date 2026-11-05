@@ -142,6 +142,11 @@ uses [PyTorch torchrun](https://docs.pytorch.org/docs/stable/elastic/run.html).
 <a id="vanilla-reproduction-guide"></a>
 ### Reproduction Guide
 
+For the exploration studies, see the per-series
+[HumanWAM-Vanilla configurations](humanwam_vanilla/README.md#experiment-configurations)
+and [published corpus indices](https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50K/tree/main/indices).
+Pretraining and ablation integration are in progress.
+
 🚧 Work in progress.
 
 ## HumanWAM-Goal

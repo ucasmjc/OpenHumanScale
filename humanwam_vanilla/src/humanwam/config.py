@@ -1,11 +1,34 @@
 """Load training settings and configure a local CUDA/torchrun launch."""
 import os
+from pathlib import Path
 
 from omegaconf import OmegaConf
 
 
+def _merge_recipe(base, overlay):
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _merge_recipe(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+def _load_recipe(config_path):
+    config_path = Path(config_path)
+    cfg = OmegaConf.to_container(OmegaConf.load(config_path), resolve=False)
+    parents = cfg.pop('_base_', [])
+    if isinstance(parents, str):
+        parents = [parents]
+    merged = {}
+    for parent in parents:
+        _merge_recipe(merged, _load_recipe(config_path.parent / parent))
+    # Explicit ??? entries must clear inherited values in unfinished recipes.
+    return _merge_recipe(merged, cfg)
+
+
 def load_config(config_path, paths_path=None, overrides=()):
-    cfg = OmegaConf.load(config_path)
+    cfg = OmegaConf.create(_load_recipe(config_path))
     if paths_path:
         cfg = OmegaConf.merge(cfg, {'paths': OmegaConf.load(paths_path)})
     if overrides:

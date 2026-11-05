@@ -1,0 +1,102 @@
+# Index paths are relative to the dataset repository. They are not loader episode IDs.
+corpus_release:
+  repo_id: DAGroup-PKU/Open-HumanScale-50K
+  index_url: https://huggingface.co/datasets/DAGroup-PKU/Open-HumanScale-50K/tree/main/indices
+  index_snapshot: '2026-11-04T21:05:15Z'
+  format: LeRobot v3
+  roots: indices/roots.parquet
+  parts: indices/parts.parquet
+  resolver: indices/resolve_part.py
+  payload_status: uploading
+corpus_indices:
+  100h:
+    nominal_hours: 100
+    family: EgoStandard scaled-diversity
+    roots: indices/100h.roots.parquet
+    segments: indices/100h.segments.parquet
+    mapping_status: unverified
+    note: 'unverified: different physical materialization; not a ready-to-load LeRobot subset'
+  500h:
+    nominal_hours: 500
+    family: EgoStandard scaled-diversity
+    roots: indices/500h.roots.parquet
+    segments: indices/500h.segments.parquet
+    mapping_status: unverified
+    note: 'unverified: different physical materialization; not a ready-to-load LeRobot subset'
+  1000h:
+    nominal_hours: 1000
+    family: EgoStandard scaled-diversity
+    roots: indices/1000h.roots.parquet
+    segments: indices/1000h.segments.parquet
+    mapping_status: unverified
+    note: 'unverified: different physical materialization; not a ready-to-load LeRobot subset'
+  5000h:
+    nominal_hours: 5000
+    family: EgoStandard scaled-diversity
+    roots: indices/5000h.roots.parquet
+    segments: indices/5000h.segments.parquet
+    mapping_status: unverified
+    note: 'unverified: different physical materialization; not a ready-to-load LeRobot subset'
+  10000h:
+    nominal_hours: 10000
+    family: mixed-source historical corpus
+    roots: indices/10000h.roots.parquet
+    segments: indices/shared.segments.parquet
+    mapping_status: source_membership_mapped
+    note: Frozen November 4, 2026; not yet bound to the historical report experiment.
+  20500h:
+    nominal_hours: 20500
+    family: mixed-source historical corpus
+    roots: indices/20500h.roots.parquet
+    segments: indices/shared.segments.parquet
+    mapping_status: source_membership_mapped
+    note: join exact source_root + source_episode_index using each part provenance; final episode indices
+      differ
+  50000h:
+    nominal_hours: 50000
+    family: mixed-source historical corpus
+    roots: indices/50000h.roots.parquet
+    segments: indices/shared.segments.parquet
+    mapping_status: source_membership_mapped
+    note: join exact source_root + source_episode_index using each part provenance; final episode indices
+      differ
+  historical_10000h:
+    nominal_hours: 10000
+    family: historical mixed-source IA scaling
+    roots: null
+    segments: null
+    mapping_status: pending
+    note: Do not substitute the November 4 10000h subset.
+  matched_100h:
+    nominal_hours: 100
+    family: matched-diversity
+    roots: null
+    segments: null
+    mapping_status: pending
+    note: Exact matched-diversity selection is not in the published indices.
+  matched_500h:
+    nominal_hours: 500
+    family: matched-diversity
+    roots: null
+    segments: null
+    mapping_status: pending
+    note: Exact matched-diversity selection is not in the published indices.
+  matched_1000h:
+    nominal_hours: 1000
+    family: matched-diversity
+    roots: null
+    segments: null
+    mapping_status: pending
+    note: Exact matched-diversity selection is not in the published indices.
+  aligned_1000h:
+    nominal_hours: 1000
+    family: four-source aligned corpus
+    roots: null
+    segments: null
+    mapping_status: pending
+    note: Attention/action-initialization ablations; distinct from scaled-diversity 1000h.
+  egopro_multiview:
+    family: EgoPro synchronized head and wrist views
+    roots: null
+    segments: null
+    mapping_status: pending

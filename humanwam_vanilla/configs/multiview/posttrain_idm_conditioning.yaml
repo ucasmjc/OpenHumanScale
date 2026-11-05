@@ -1,0 +1,18 @@
+_base_: ../_base_/posttrain_idm.yaml
+experiment:
+  name: multiview/posttrain_idm_conditioning
+  pretrain_step: 20000
+  input_views:
+  - head
+  - left_wrist
+  - right_wrist
+  predicted_views:
+  - head
+data:
+  train: ???
+release:
+  pending:
+  - Exact multiview data processor and model-layout binding from the corresponding historical run
+  - Checkpoint downloads and exploration evaluation integration
+model:
+  video_vae_layout: ???
