@@ -9,7 +9,5 @@ model:
   model_class: humanwam.models.wan22.fastwam.FastWAM
 data:
   train: ???
-release:
-  pending:
-  - Exact attention and action-processor implementation for this ablation
-  - Checkpoint/normalizer bindings and evaluation integration
+# Work in progress: Exact attention and action-processor implementation for this ablation
+# Work in progress: Checkpoint/normalizer bindings and evaluation integration

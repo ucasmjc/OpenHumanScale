@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -14,18 +13,6 @@ def config():
     # Config-only fixtures do not claim these input resources exist.
     cfg.paths = {k: f'/example/{k}' for k in cfg.paths}
     return cfg
-
-
-def test_current_paper_result_is_distinct_from_training_schedule(config):
-    paper = json.loads((ROOT / 'release/paper_alignment.json').read_text())
-    assert paper['source_profile'] == config.release.profile
-    assert paper['lineage']['ego_hours'] == 50000
-    assert paper['lineage']['posttrain_schedule_steps'] == config.max_steps == 24000
-    assert paper['main_result']['step'] == paper['lineage']['posttrain_selected_step'] == 21000
-    scores = paper['main_result']['scores']
-    assert all(round(s['successes'] / s['episodes'] * 100, 2) == s['sr'] for s in scores)
-    assert round(sum(s['sr'] for s in scores) / len(scores), 2) == float(paper['main_result']['mean'])
-
 
 
 def test_portable_training_defaults(config):

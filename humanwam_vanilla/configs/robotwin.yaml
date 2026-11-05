@@ -528,7 +528,3 @@ paths:
   data__train__text_embedding_fallback_cache_dirs__1: ???
   data__train__text_embedding_fallback_cache_dirs__2: ???
   data__train__text_embedding_fallback_cache_dirs__3: ???
-release:
-  profile: idm_w0_a2_50kh
-  purpose: new_finetune
-  runtime_verified: false

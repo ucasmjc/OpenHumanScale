@@ -29,7 +29,5 @@ experiment:
   global_batch_size: 512
   action_representation: relative_camera_frame
   attention: isolated
-release:
-  pending:
-  - Public LeRobot v3 pretraining loader and action processor
-  - Subset mapping, normalization statistics and text embeddings
+# Work in progress: Public LeRobot v3 pretraining loader and action processor
+# Work in progress: Subset mapping, normalization statistics and text embeddings

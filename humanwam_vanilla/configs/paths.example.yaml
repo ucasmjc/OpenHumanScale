@@ -1,4 +1,4 @@
-# Local resource bindings. See release/dataset_bindings.json for task identities.
+# Local resource bindings. Each data path is labeled with its RoboTwin task below.
 output_dir: ./runs/robotwin
 # Compatible full RoboTwin post-trained policy; no pretraining checkpoint.
 resume: ???

@@ -28,9 +28,9 @@ if [[ "$mode" == train ]]; then
   uv pip install --python "$python_bin" -e "$root[dev]"
   "$python_bin" "$root/scripts/check_environment.py"
 else
-  uv pip install --python "$python_bin" -r "$root/evaluation/robotwin/requirements-sim.txt"
   MAX_JOBS="${MAX_JOBS:-1}" uv pip install --python "$python_bin" \
-    --no-build-isolation -r "$root/evaluation/robotwin/requirements-cuda.txt"
+    --no-build-isolation-package nvidia-curobo \
+    -r "$root/evaluation/robotwin/requirements.txt"
   "$python_bin" "$root/scripts/check_sim_environment.py"
 fi
 uv pip check --python "$python_bin"

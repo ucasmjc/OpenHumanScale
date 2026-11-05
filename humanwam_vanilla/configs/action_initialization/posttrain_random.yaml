@@ -6,6 +6,4 @@ experiment:
   augmentation: photometric
 data:
   train: ???
-release:
-  pending:
-  - Exact photometric augmentation recipe and initializer bindings
+# Work in progress: Exact photometric augmentation recipe and initializer bindings

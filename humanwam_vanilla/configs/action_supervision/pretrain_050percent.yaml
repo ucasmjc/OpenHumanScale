@@ -23,7 +23,5 @@ model:
       position: 1.0
       rotation: 0.5
       gripper: 0.1
-release:
-  pending:
-  - Fixed original-episode action mask covering approximately 50% of video duration
-  - Pretraining loader/processor and corpus mapping
+# Work in progress: Fixed original-episode action mask covering approximately 50% of video duration
+# Work in progress: Pretraining loader/processor and corpus mapping

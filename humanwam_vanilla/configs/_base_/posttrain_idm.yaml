@@ -187,7 +187,5 @@ experiment:
   demonstrations_per_task: 50
   task_count: 50
   augmentation: none
-release:
-  pending:
-  - Checkpoint and matching normalization-statistics downloads
-  - Exploration evaluation integration, including scene-ood
+# Work in progress: Checkpoint and matching normalization-statistics downloads
+# Work in progress: Exploration evaluation integration, including scene-ood

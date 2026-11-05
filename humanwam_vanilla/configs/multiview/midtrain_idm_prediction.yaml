@@ -23,6 +23,4 @@ paths:
   resume: ???
 model:
   video_vae_layout: ???
-release:
-  pending:
-  - EgoPro selection, multiview processor and historical mid-training schedule
+# Work in progress: EgoPro selection, multiview processor and historical mid-training schedule

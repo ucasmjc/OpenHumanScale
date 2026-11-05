@@ -12,9 +12,7 @@ experiment:
   - right_wrist
 data:
   train: ???
-release:
-  pending:
-  - Exact multiview data processor and model-layout binding from the corresponding historical run
-  - Checkpoint downloads and exploration evaluation integration
+# Work in progress: Exact multiview data processor and model-layout binding from the corresponding historical run
+# Work in progress: Checkpoint downloads and exploration evaluation integration
 model:
   video_vae_layout: ???

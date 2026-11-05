@@ -50,6 +50,4 @@ paths:
   output_dir: ???
   resume: ???
   model__action_dit_pretrained_path: ???
-release:
-  status: work_in_progress
-  runtime_verified: false
+# Work in progress.

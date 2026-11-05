@@ -10,7 +10,5 @@ paths:
 data:
   train:
     episode_exclusion_manifest: ${paths.robotwin_episode_exclusion_manifest}
-release:
-  pending:
-  - Exact per-task demonstration selection and its normalization statistics
-  - Checkpoint downloads and exploration evaluation integration
+# Work in progress: Exact per-task demonstration selection and its normalization statistics
+# Work in progress: Checkpoint downloads and exploration evaluation integration
